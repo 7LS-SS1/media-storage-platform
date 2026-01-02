@@ -10,6 +10,7 @@
     "db:studio": "prisma studio",
     "dev": "next dev",
     "lint": "eslint .",
+    "postinstall": "prisma generate",
     "start": "next start"
   },
   "dependencies": {
