@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { normalizeR2Url } from "@/lib/r2"
 import { createVideoSchema, videoQuerySchema } from "@/lib/validation"
 
 const mapPluginVideo = (video: {
@@ -17,8 +18,8 @@ const mapPluginVideo = (video: {
   id: video.id,
   title: video.title,
   description: video.description ?? "",
-  video_url: video.videoUrl,
-  thumbnail_url: video.thumbnailUrl,
+  video_url: normalizeR2Url(video.videoUrl),
+  thumbnail_url: normalizeR2Url(video.thumbnailUrl),
   duration: video.duration,
   tags: video.category?.name ? [video.category.name] : [],
   created_at: video.createdAt,
@@ -202,12 +203,18 @@ export async function GET(request: NextRequest) {
       prisma.video.count({ where }),
     ])
 
+    const normalizedVideos = videos.map((video) => ({
+      ...video,
+      videoUrl: normalizeR2Url(video.videoUrl) ?? video.videoUrl,
+      thumbnailUrl: normalizeR2Url(video.thumbnailUrl),
+    }))
+
     if (isPluginRequest) {
       const totalPages = Math.ceil(total / limit)
       const hasMore = validatedQuery.page * limit < total
 
       return NextResponse.json({
-        data: videos.map((video) => mapPluginVideo(video)),
+        data: normalizedVideos.map((video) => mapPluginVideo(video)),
         pagination: {
           page: validatedQuery.page,
           per_page: limit,
@@ -220,7 +227,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      videos,
+      videos: normalizedVideos,
       pagination: {
         page: validatedQuery.page,
         limit,

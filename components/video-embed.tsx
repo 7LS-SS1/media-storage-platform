@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { AlertCircle, Lock } from "lucide-react"
 
 interface VideoEmbedProps {
@@ -19,6 +19,15 @@ export function VideoEmbed({ videoId }: VideoEmbedProps) {
   const [video, setVideo] = useState<VideoData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const videoType = useMemo(() => {
+    if (!video?.videoUrl) return "video/mp4"
+    const cleanUrl = video.videoUrl.split("?")[0].toLowerCase()
+    if (cleanUrl.endsWith(".webm")) return "video/webm"
+    if (cleanUrl.endsWith(".mov")) return "video/quicktime"
+    if (cleanUrl.endsWith(".avi")) return "video/x-msvideo"
+    if (cleanUrl.endsWith(".ts")) return "video/mp2t"
+    return "video/mp4"
+  }, [video?.videoUrl])
 
   useEffect(() => {
     async function fetchVideo() {
@@ -82,7 +91,7 @@ export function VideoEmbed({ videoId }: VideoEmbedProps) {
   return (
     <div className="w-full h-screen">
       <video controls autoPlay className="w-full h-full" title={video.title}>
-        <source src={video.videoUrl} type="video/mp4" />
+        <source src={video.videoUrl} type={videoType} />
         Your browser does not support the video tag.
       </video>
     </div>

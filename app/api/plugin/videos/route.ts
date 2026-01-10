@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { normalizeR2Url } from "@/lib/r2"
 
 const DEFAULT_PAGE = 1
 const DEFAULT_PER_PAGE = 20
@@ -47,8 +48,8 @@ const mapVideo = (video: {
   id: video.id,
   title: video.title,
   description: video.description ?? "",
-  video_url: video.videoUrl,
-  thumbnail_url: video.thumbnailUrl,
+  video_url: normalizeR2Url(video.videoUrl),
+  thumbnail_url: normalizeR2Url(video.thumbnailUrl),
   duration: video.duration,
   tags: video.category?.name ? [video.category.name] : [],
   created_at: video.createdAt,

@@ -11,6 +11,7 @@ type R2Config = {
 
 let cachedClient: S3Client | null = null
 let cachedConfig: R2Config | null = null
+const R2_KEY_PREFIX = "media-storage"
 
 function getR2Config(): R2Config {
   if (cachedConfig) return cachedConfig
@@ -65,19 +66,34 @@ export async function uploadToR2(file: Buffer, key: string, contentType: string)
 
   await getR2Client(config).send(command)
 
-  // Return public URL
-  if (config.publicDomain) {
-    return `${config.publicDomain}/${key}`
-  }
-  return `${config.endpoint}/${config.bucketName}/${key}`
+  return getPublicR2Url(key)
 }
 
 export function getPublicR2Url(key: string): string {
   const config = getR2Config()
+  let base = `${config.endpoint}/${config.bucketName}`
   if (config.publicDomain) {
-    return `${config.publicDomain}/${key}`
+    try {
+      const parsed = new URL(config.publicDomain)
+      base = parsed.origin
+    } catch {
+      base = config.publicDomain.replace(/\/+$/, "")
+    }
   }
-  return `${config.endpoint}/${config.bucketName}/${key}`
+  return `${base}/${key}`
+}
+
+export function normalizeR2Url(url: string | null): string | null {
+  if (!url) return url
+  return url.replace("/source/", "/media-storage/")
+}
+
+export function generateUploadKey(filename: string, type: "video" | "thumbnail"): string {
+  const timestamp = Date.now()
+  const randomString = Math.random().toString(36).substring(2, 15)
+  const extension = filename.split(".").pop() || "bin"
+  const prefix = type === "thumbnail" ? "thumbnails" : "videos"
+  return `${R2_KEY_PREFIX}/${prefix}/${timestamp}-${randomString}.${extension}`
 }
 
 /**
@@ -124,8 +140,5 @@ export async function getSignedR2Url(key: string, expiresIn = 3600): Promise<str
  * Generate unique filename
  */
 export function generateUniqueFilename(originalName: string): string {
-  const timestamp = Date.now()
-  const randomString = Math.random().toString(36).substring(2, 15)
-  const extension = originalName.split(".").pop()
-  return `videos/${timestamp}-${randomString}.${extension}`
+  return generateUploadKey(originalName, "video")
 }

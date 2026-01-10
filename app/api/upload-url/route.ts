@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { getUserFromRequest } from "@/lib/auth"
-import { getPublicR2Url, getSignedUploadUrl } from "@/lib/r2"
+import { generateUploadKey, getPublicR2Url, getSignedUploadUrl } from "@/lib/r2"
 
 const MAX_FILE_SIZE = 5000 * 1024 * 1024 // 5000MB
 const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime", "video/x-msvideo", "video/mp2t"]
@@ -13,14 +13,6 @@ const uploadUrlSchema = z.object({
   size: z.number().int().positive(),
   type: z.enum(["video", "thumbnail"]),
 })
-
-const createUploadKey = (filename: string, type: "video" | "thumbnail") => {
-  const timestamp = Date.now()
-  const randomString = Math.random().toString(36).substring(2, 15)
-  const extension = filename.split(".").pop() || "bin"
-  const prefix = type === "thumbnail" ? "thumbnails" : "videos"
-  return `${prefix}/${timestamp}-${randomString}.${extension}`
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -59,7 +51,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const key = createUploadKey(validatedData.filename, validatedData.type)
+    const key = generateUploadKey(validatedData.filename, validatedData.type)
     const uploadUrl = await getSignedUploadUrl(key, uploadContentType)
     const publicUrl = getPublicR2Url(key)
 

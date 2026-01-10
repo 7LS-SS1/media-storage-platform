@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { normalizeR2Url } from "@/lib/r2"
 import { getRequestingDomain, isDomainAllowedForVideo } from "@/lib/domain-security"
 
 export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
         video: {
           id: video.id,
           title: video.title,
-          videoUrl: video.videoUrl,
+          videoUrl: normalizeR2Url(video.videoUrl) ?? video.videoUrl,
           visibility: video.visibility,
           status: video.status,
         },
@@ -75,7 +76,7 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
         video: {
           id: video.id,
           title: video.title,
-          videoUrl: video.videoUrl,
+          videoUrl: normalizeR2Url(video.videoUrl) ?? video.videoUrl,
           visibility: video.visibility,
           status: video.status,
         },

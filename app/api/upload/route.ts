@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
-import { uploadToR2, generateUniqueFilename } from "@/lib/r2"
+import { generateUploadKey, uploadToR2 } from "@/lib/r2"
 
 const MAX_FILE_SIZE = 5000 * 1024 * 1024 // 500MB
 const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime", "video/x-msvideo", "video/mp2t"]
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(bytes)
 
     // Generate unique filename
-    const filename = generateUniqueFilename(file.name)
+    const filename = generateUploadKey(file.name, type === "thumbnail" ? "thumbnail" : "video")
 
     // Upload to R2
     const url = await uploadToR2(buffer, filename, uploadContentType)

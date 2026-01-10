@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { normalizeR2Url } from "@/lib/r2"
 import { updateVideoSchema } from "@/lib/validation"
 
 const mapPluginVideo = (video: {
@@ -17,8 +18,8 @@ const mapPluginVideo = (video: {
   id: video.id,
   title: video.title,
   description: video.description ?? "",
-  video_url: video.videoUrl,
-  thumbnail_url: video.thumbnailUrl,
+  video_url: normalizeR2Url(video.videoUrl),
+  thumbnail_url: normalizeR2Url(video.thumbnailUrl),
   duration: video.duration,
   tags: video.category?.name ? [video.category.name] : [],
   created_at: video.createdAt,
@@ -72,12 +73,17 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
 
     const userAgent = request.headers.get("user-agent") ?? ""
     const isPluginRequest = Boolean(request.headers.get("authorization")) || userAgent.includes("7LS-Video-Publisher")
-
-    if (isPluginRequest) {
-      return NextResponse.json({ data: mapPluginVideo(video) })
+    const normalizedVideo = {
+      ...video,
+      videoUrl: normalizeR2Url(video.videoUrl) ?? video.videoUrl,
+      thumbnailUrl: normalizeR2Url(video.thumbnailUrl),
     }
 
-    return NextResponse.json({ video })
+    if (isPluginRequest) {
+      return NextResponse.json({ data: mapPluginVideo(normalizedVideo) })
+    }
+
+    return NextResponse.json({ video: normalizedVideo })
   } catch (error) {
     console.error("Get video error:", error)
     return NextResponse.json({ error: "Failed to fetch video" }, { status: 500 })
