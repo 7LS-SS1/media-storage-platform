@@ -125,6 +125,12 @@ export async function GET(request: NextRequest) {
       }
       return null
     }
+    const userAgent = request.headers.get("user-agent") ?? ""
+    const isPluginRequest =
+      searchParams.has("per_page") ||
+      searchParams.has("project_id") ||
+      searchParams.has("since") ||
+      userAgent.includes("7LS-Video-Publisher")
 
     // Build where clause
     const where: any = {
@@ -227,9 +233,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Failed to fetch videos" }, { status: 500 })
   }
 }
-    const userAgent = request.headers.get("user-agent") ?? ""
-    const isPluginRequest =
-      searchParams.has("per_page") ||
-      searchParams.has("project_id") ||
-      searchParams.has("since") ||
-      userAgent.includes("7LS-Video-Publisher")
