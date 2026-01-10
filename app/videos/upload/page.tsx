@@ -98,15 +98,27 @@ export default function UploadVideoPage() {
     type: "video" | "thumbnail",
     onProgress: (progress: number) => void,
   ) => {
-    const formData = new FormData()
-    formData.append("file", file)
-    formData.append("type", type)
+    const uploadResponse = await fetch("/api/upload-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        filename: file.name,
+        contentType: file.type,
+        size: file.size,
+        type,
+      }),
+    })
+
+    const uploadInfo = await uploadResponse.json()
+    if (!uploadResponse.ok) {
+      throw new Error(uploadInfo.error || "Failed to prepare upload")
+    }
 
     return await new Promise<{ url: string; size: number; type: string }>((resolve, reject) => {
       const xhr = new XMLHttpRequest()
-      xhr.open("POST", "/api/upload")
-      xhr.responseType = "json"
-      xhr.withCredentials = true
+      xhr.open("PUT", uploadInfo.uploadUrl)
+      xhr.setRequestHeader("Content-Type", uploadInfo.contentType)
 
       xhr.upload.onprogress = (event) => {
         if (!event.lengthComputable) return
@@ -115,26 +127,15 @@ export default function UploadVideoPage() {
       }
 
       xhr.onload = () => {
-        const status = xhr.status
-        const response =
-          xhr.response ??
-          (() => {
-            try {
-              return xhr.responseText ? JSON.parse(xhr.responseText) : null
-            } catch {
-              return null
-            }
-          })()
-
-        if (status >= 200 && status < 300) {
-          resolve(response as { url: string; size: number; type: string })
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve({ url: uploadInfo.publicUrl, size: file.size, type: uploadInfo.contentType })
         } else {
-          reject(new Error(response?.error || "Upload failed"))
+          reject(new Error("Upload failed"))
         }
       }
 
       xhr.onerror = () => reject(new Error("Upload failed"))
-      xhr.send(formData)
+      xhr.send(file)
     })
   }
 

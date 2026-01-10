@@ -72,6 +72,28 @@ export async function uploadToR2(file: Buffer, key: string, contentType: string)
   return `${config.endpoint}/${config.bucketName}/${key}`
 }
 
+export function getPublicR2Url(key: string): string {
+  const config = getR2Config()
+  if (config.publicDomain) {
+    return `${config.publicDomain}/${key}`
+  }
+  return `${config.endpoint}/${config.bucketName}/${key}`
+}
+
+/**
+ * Generate signed URL for direct uploads
+ */
+export async function getSignedUploadUrl(key: string, contentType: string, expiresIn = 900): Promise<string> {
+  const config = getR2Config()
+  const command = new PutObjectCommand({
+    Bucket: config.bucketName,
+    Key: key,
+    ContentType: contentType,
+  })
+
+  return await getSignedUrl(getR2Client(config), command, { expiresIn })
+}
+
 /**
  * Delete file from R2
  */
