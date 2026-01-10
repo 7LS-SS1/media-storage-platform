@@ -29,11 +29,19 @@ export async function POST(request: NextRequest) {
 
     // Validate file type
     const allowedTypes = type === "thumbnail" ? ALLOWED_IMAGE_TYPES : ALLOWED_VIDEO_TYPES
-    if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json(
-        { error: `Invalid file type. Allowed types: ${allowedTypes.join(", ")}` },
-        { status: 400 },
-      )
+    const normalizedType = file.type?.toLowerCase() ?? ""
+    let uploadContentType = normalizedType
+    const isTsFile = type === "video" && file.name.toLowerCase().endsWith(".ts")
+
+    if (!allowedTypes.includes(normalizedType)) {
+      if (isTsFile && (normalizedType === "application/octet-stream" || normalizedType === "")) {
+        uploadContentType = "video/mp2t"
+      } else {
+        return NextResponse.json(
+          { error: `Invalid file type. Allowed types: ${allowedTypes.join(", ")}` },
+          { status: 400 },
+        )
+      }
     }
 
     // Validate file size
@@ -52,7 +60,7 @@ export async function POST(request: NextRequest) {
     const filename = generateUniqueFilename(file.name)
 
     // Upload to R2
-    const url = await uploadToR2(buffer, filename, file.type)
+    const url = await uploadToR2(buffer, filename, uploadContentType)
 
     return NextResponse.json(
       {
@@ -60,7 +68,7 @@ export async function POST(request: NextRequest) {
         url,
         filename,
         size: file.size,
-        type: file.type,
+        type: uploadContentType,
       },
       { status: 200 },
     )
