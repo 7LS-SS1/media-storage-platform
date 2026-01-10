@@ -1,6 +1,8 @@
 import type { NextRequest } from "next/server"
+import { createHash } from "crypto"
 import { jwtVerify, SignJWT } from "jose"
 import bcrypt from "bcryptjs"
+import { prisma } from "@/lib/prisma"
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || "your-secret-key-change-in-production")
 
@@ -13,10 +15,10 @@ export interface JWTPayload {
 /**
  * Generate JWT Token
  */
-export async function generateToken(payload: JWTPayload): Promise<string> {
+export async function generateToken(payload: JWTPayload, expiresIn = "7d"): Promise<string> {
   return await new SignJWT({ ...payload })
     .setProtectedHeader({ alg: "HS256" })
-    .setExpirationTime("7d")
+    .setExpirationTime(expiresIn)
     .setIssuedAt()
     .sign(JWT_SECRET)
 }
@@ -33,15 +35,58 @@ export async function verifyToken(token: string): Promise<JWTPayload | null> {
   }
 }
 
+export function hashApiToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex")
+}
+
 /**
  * Get user from request
  */
 export async function getUserFromRequest(request: NextRequest): Promise<JWTPayload | null> {
-  const token = request.cookies.get("token")?.value || request.headers.get("authorization")?.replace("Bearer ", "")
+  const headerToken = request.headers.get("authorization")?.replace("Bearer ", "")
+  const cookieToken = request.cookies.get("token")?.value
 
-  if (!token) return null
+  if (headerToken) {
+    const jwtPayload = await verifyToken(headerToken)
+    if (jwtPayload) {
+      return jwtPayload
+    }
 
-  return await verifyToken(token)
+    const tokenHash = hashApiToken(headerToken)
+    const apiToken = await prisma.apiToken.findFirst({
+      where: {
+        tokenHash,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      include: {
+        createdBy: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+    })
+
+    if (!apiToken) return null
+
+    await prisma.apiToken.update({
+      where: { id: apiToken.id },
+      data: { lastUsedAt: new Date() },
+    })
+
+    return {
+      userId: apiToken.createdById,
+      email: apiToken.createdBy.email,
+      role: apiToken.createdBy.role,
+    }
+  }
+
+  if (!cookieToken) return null
+
+  return await verifyToken(cookieToken)
 }
 
 /**

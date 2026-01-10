@@ -3,7 +3,7 @@ import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { updateVideoSchema } from "@/lib/validation"
 
-const mapPluginVideo = (video: {
+const mapVideo = (video: {
   id: string
   title: string
   description: string | null
@@ -24,9 +24,8 @@ const mapPluginVideo = (video: {
   created_at: video.createdAt,
   updated_at: video.updatedAt,
 })
-import { deleteFromR2 } from "@/lib/r2"
 
-// GET - Get video by ID
+// GET /videos/{id}
 export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params
   try {
@@ -59,32 +58,18 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
       return NextResponse.json({ error: "Video not found" }, { status: 404 })
     }
 
-    // Check access permissions
     if (video.visibility === "PRIVATE" && video.createdById !== user.userId && user.role !== "ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    // Increment view count
-    await prisma.video.update({
-      where: { id: params.id },
-      data: { views: { increment: 1 } },
-    })
-
-    const userAgent = request.headers.get("user-agent") ?? ""
-    const isPluginRequest = Boolean(request.headers.get("authorization")) || userAgent.includes("7LS-Video-Publisher")
-
-    if (isPluginRequest) {
-      return NextResponse.json({ data: mapPluginVideo(video) })
-    }
-
-    return NextResponse.json({ video })
+    return NextResponse.json({ data: mapVideo(video) })
   } catch (error) {
-    console.error("Get video error:", error)
+    console.error("Plugin get video error:", error)
     return NextResponse.json({ error: "Failed to fetch video" }, { status: 500 })
   }
 }
 
-// PUT - Update video
+// PUT /videos/{id}
 export async function PUT(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params
   try {
@@ -105,15 +90,13 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
       return NextResponse.json({ error: "Video not found" }, { status: 404 })
     }
 
-    // Only admin or owner can update
     if (video.createdById !== user.userId && user.role !== "ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    const body = await request.json()
+    const body = await request.json().catch(() => ({}))
     const validatedData = updateVideoSchema.parse(body)
 
-    // Update video
     const updatedVideo = await prisma.video.update({
       where: { id: params.id },
       data: {
@@ -135,14 +118,11 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
       },
     })
 
-    // Update allowed domains if needed
     if (validatedData.visibility === "DOMAIN_RESTRICTED" && validatedData.allowedDomainIds) {
-      // Remove existing relations
       await prisma.videoAllowedDomain.deleteMany({
         where: { videoId: params.id },
       })
 
-      // Add new relations
       await Promise.all(
         validatedData.allowedDomainIds.map((domainId) =>
           prisma.videoAllowedDomain.create({
@@ -160,63 +140,10 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
       video: updatedVideo,
     })
   } catch (error) {
-    console.error("Update video error:", error)
+    console.error("Plugin update video error:", error)
     if (error instanceof Error) {
       return NextResponse.json({ error: error.message }, { status: 400 })
     }
     return NextResponse.json({ error: "Failed to update video" }, { status: 500 })
-  }
-}
-
-// DELETE - Delete video
-export async function DELETE(request: NextRequest, props: { params: Promise<{ id: string }> }) {
-  const params = await props.params
-  try {
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    if (user.role !== "ADMIN") {
-      return NextResponse.json({ error: "Forbidden - Only admin can delete videos" }, { status: 403 })
-    }
-
-    const video = await prisma.video.findUnique({
-      where: { id: params.id },
-    })
-
-    if (!video) {
-      return NextResponse.json({ error: "Video not found" }, { status: 404 })
-    }
-
-    // Delete video file from R2
-    try {
-      const videoKey = video.videoUrl.split("/").pop()
-      if (videoKey) {
-        await deleteFromR2(videoKey)
-      }
-
-      // Delete thumbnail if exists
-      if (video.thumbnailUrl) {
-        const thumbnailKey = video.thumbnailUrl.split("/").pop()
-        if (thumbnailKey) {
-          await deleteFromR2(thumbnailKey)
-        }
-      }
-    } catch (error) {
-      console.error("Failed to delete files from R2:", error)
-    }
-
-    // Delete video from database (cascade will handle relations)
-    await prisma.video.delete({
-      where: { id: params.id },
-    })
-
-    return NextResponse.json({
-      message: "Video deleted successfully",
-    })
-  } catch (error) {
-    console.error("Delete video error:", error)
-    return NextResponse.json({ error: "Failed to delete video" }, { status: 500 })
   }
 }

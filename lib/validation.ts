@@ -21,6 +21,9 @@ export const updateVideoSchema = z.object({
 export const videoQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(100).default(20),
+  per_page: z.coerce.number().min(1).max(100).optional(),
+  since: z.string().optional(),
+  project_id: z.string().optional(),
   search: z.string().optional(),
   categoryId: z.string().optional(),
   visibility: z.enum(["PUBLIC", "PRIVATE", "DOMAIN_RESTRICTED"]).optional(),

@@ -3,6 +3,28 @@ import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { createVideoSchema, videoQuerySchema } from "@/lib/validation"
 
+const mapPluginVideo = (video: {
+  id: string
+  title: string
+  description: string | null
+  videoUrl: string
+  thumbnailUrl: string | null
+  duration: number | null
+  createdAt: Date
+  updatedAt: Date
+  category?: { name: string } | null
+}) => ({
+  id: video.id,
+  title: video.title,
+  description: video.description ?? "",
+  video_url: video.videoUrl,
+  thumbnail_url: video.thumbnailUrl,
+  duration: video.duration,
+  tags: video.category?.name ? [video.category.name] : [],
+  created_at: video.createdAt,
+  updated_at: video.updatedAt,
+})
+
 // POST - Create new video
 export async function POST(request: NextRequest) {
   try {
@@ -86,6 +108,23 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const query = Object.fromEntries(searchParams.entries())
     const validatedQuery = videoQuerySchema.parse(query)
+    const limit = validatedQuery.per_page ?? validatedQuery.limit
+    const parseSinceDate = (value?: string) => {
+      if (!value) return null
+      const numeric = Number(value)
+      if (Number.isFinite(numeric)) {
+        const ms = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric
+        const date = new Date(ms)
+        if (!Number.isNaN(date.getTime())) {
+          return date
+        }
+      }
+      const date = new Date(value)
+      if (!Number.isNaN(date.getTime())) {
+        return date
+      }
+      return null
+    }
 
     // Build where clause
     const where: any = {
@@ -115,6 +154,13 @@ export async function GET(request: NextRequest) {
       where.OR = [{ visibility: "PUBLIC" }, { createdById: user.userId }]
     }
 
+    if (validatedQuery.since) {
+      const sinceDate = parseSinceDate(validatedQuery.since)
+      if (sinceDate) {
+        where.updatedAt = { gt: sinceDate }
+      }
+    }
+
     // Sorting
     const orderBy: any = {}
     if (validatedQuery.sort === "newest") {
@@ -126,8 +172,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Pagination
-    const skip = (validatedQuery.page - 1) * validatedQuery.limit
-    const take = validatedQuery.limit
+    const skip = (validatedQuery.page - 1) * limit
+    const take = limit
 
     // Execute query
     const [videos, total] = await Promise.all([
@@ -150,13 +196,30 @@ export async function GET(request: NextRequest) {
       prisma.video.count({ where }),
     ])
 
+    if (isPluginRequest) {
+      const totalPages = Math.ceil(total / limit)
+      const hasMore = validatedQuery.page * limit < total
+
+      return NextResponse.json({
+        data: videos.map((video) => mapPluginVideo(video)),
+        pagination: {
+          page: validatedQuery.page,
+          per_page: limit,
+          total,
+          total_pages: totalPages,
+          next_page: hasMore ? validatedQuery.page + 1 : null,
+          has_more: hasMore,
+        },
+      })
+    }
+
     return NextResponse.json({
       videos,
       pagination: {
         page: validatedQuery.page,
-        limit: validatedQuery.limit,
+        limit,
         total,
-        totalPages: Math.ceil(total / validatedQuery.limit),
+        totalPages: Math.ceil(total / limit),
       },
     })
   } catch (error) {
@@ -164,3 +227,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Failed to fetch videos" }, { status: 500 })
   }
 }
+    const userAgent = request.headers.get("user-agent") ?? ""
+    const isPluginRequest =
+      searchParams.has("per_page") ||
+      searchParams.has("project_id") ||
+      searchParams.has("since") ||
+      userAgent.includes("7LS-Video-Publisher")

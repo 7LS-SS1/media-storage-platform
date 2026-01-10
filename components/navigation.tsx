@@ -16,7 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
-import { Globe, Menu, UploadCloud, Video } from "lucide-react"
+import { Globe, KeyRound, Menu, UploadCloud, Video } from "lucide-react"
 
 type NavUser = {
   id: string
@@ -80,7 +80,12 @@ export function Navigation() {
   const navLinks = [
     { href: "/videos", label: "Videos" },
     ...(user ? [{ href: "/videos/upload", label: "Upload" }] : []),
-    ...(user?.role === "ADMIN" ? [{ href: "/admin/domains", label: "Domains" }] : []),
+    ...(user?.role === "ADMIN"
+      ? [
+          { href: "/admin/domains", label: "Domains" },
+          { href: "/admin/tokens", label: "API Tokens" },
+        ]
+      : []),
   ]
 
   const handleLogout = async () => {
@@ -204,12 +209,20 @@ export function Navigation() {
                     </Link>
                   </DropdownMenuItem>
                   {user.role === "ADMIN" && (
-                    <DropdownMenuItem asChild>
-                      <Link href="/admin/domains">
-                        <Globe className="h-4 w-4" />
-                        Domains
-                      </Link>
-                    </DropdownMenuItem>
+                    <>
+                      <DropdownMenuItem asChild>
+                        <Link href="/admin/domains">
+                          <Globe className="h-4 w-4" />
+                          Domains
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <Link href="/admin/tokens">
+                          <KeyRound className="h-4 w-4" />
+                          API Tokens
+                        </Link>
+                      </DropdownMenuItem>
+                    </>
                   )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleLogout} variant="destructive">

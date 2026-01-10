@@ -80,7 +80,7 @@ VALUES (
   'user_admin',
   'admin@example.com',
   'Admin User',
-  '$2b$10$REPLACE_WITH_REAL_BCRYPT_HASH',
+  '$2b$10$mJrKlk7.irrHHSbhAfZ3ger63b89Ywd4j7sIeZI8TRx.CYUqzeVQm',
   'ADMIN'
 )
 ON CONFLICT (email) DO NOTHING;
