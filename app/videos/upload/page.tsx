@@ -315,7 +315,7 @@ export default function UploadVideoPage() {
                   <Input
                     id="video-file"
                     type="file"
-                    accept="video/mp4,video/webm,video/quicktime,video/x-msvideo"
+                    accept="video/mp4,video/webm,video/quicktime,video/x-msvideo,video/mp2t,.ts"
                     onChange={(event) => setVideoFile(event.target.files?.[0] ?? null)}
                   />
                   {videoFile && <p className="text-sm text-muted-foreground">{videoFile.name}</p>}
@@ -358,7 +358,7 @@ export default function UploadVideoPage() {
               </CardHeader>
               <CardContent className="space-y-2 text-sm text-muted-foreground">
                 <p>ขนาดไฟล์สูงสุด : 5GB</p>
-                <p>รองรับไฟล์ : MP4, WebM, MOV, AVI</p>
+                <p>รองรับไฟล์ : MP4, WebM, MOV, AVI, TS</p>
                 <p>ชนิดรูปหน้าปก : JPG, PNG, WebP</p>
               </CardContent>
             </Card>

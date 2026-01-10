@@ -3,7 +3,7 @@ import { getUserFromRequest } from "@/lib/auth"
 import { uploadToR2, generateUniqueFilename } from "@/lib/r2"
 
 const MAX_FILE_SIZE = 5000 * 1024 * 1024 // 500MB
-const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime", "video/x-msvideo"]
+const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime", "video/x-msvideo", "video/mp2t"]
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"]
 
 export async function POST(request: NextRequest) {
