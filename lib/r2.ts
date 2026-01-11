@@ -1,3 +1,4 @@
+import { createReadStream } from "fs"
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3"
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 
@@ -69,6 +70,21 @@ export async function uploadToR2(file: Buffer, key: string, contentType: string)
   return getPublicR2Url(key)
 }
 
+export async function uploadFileToR2(filePath: string, key: string, contentType: string): Promise<string> {
+  const config = getR2Config()
+  const stream = createReadStream(filePath)
+  const command = new PutObjectCommand({
+    Bucket: config.bucketName,
+    Key: key,
+    Body: stream,
+    ContentType: contentType,
+  })
+
+  await getR2Client(config).send(command)
+
+  return getPublicR2Url(key)
+}
+
 export function getPublicR2Url(key: string): string {
   const config = getR2Config()
   let base = `${config.endpoint}/${config.bucketName}`
@@ -85,7 +101,67 @@ export function getPublicR2Url(key: string): string {
 
 export function normalizeR2Url(url: string | null): string | null {
   if (!url) return url
-  return url.replace("/source/", "/media-storage/")
+  const normalized = url.replace(/(^|\/)source\//, "$1media-storage/")
+  if (/^https?:\/\//i.test(normalized) || normalized.startsWith("//")) {
+    return normalized
+  }
+  const trimmed = normalized.replace(/^\/+/, "")
+  try {
+    return getPublicR2Url(trimmed)
+  } catch {
+    return normalized
+  }
+}
+
+export function extractR2Key(url: string): string | null {
+  if (!url) return null
+  const withoutQuery = url.split("?")[0]?.split("#")[0] ?? ""
+  const cleaned = withoutQuery.trim()
+  if (!cleaned) return null
+
+  if (!/^https?:\/\//i.test(cleaned) && !cleaned.startsWith("//")) {
+    return cleaned.replace(/^\/+/, "")
+  }
+
+  let parsed: URL
+  try {
+    parsed = new URL(cleaned.startsWith("//") ? `https:${cleaned}` : cleaned)
+  } catch {
+    return null
+  }
+
+  const path = parsed.pathname.replace(/^\/+/, "")
+  if (!path) return null
+
+  const prefix = `${R2_KEY_PREFIX}/`
+  const prefixIndex = path.indexOf(prefix)
+  if (prefixIndex >= 0) {
+    return path.slice(prefixIndex)
+  }
+
+  try {
+    const config = getR2Config()
+    const bucketPrefix = `${config.bucketName}/`
+    if (path.startsWith(bucketPrefix)) {
+      return path.slice(bucketPrefix.length)
+    }
+  } catch {
+    // Ignore config errors and fall back to path.
+  }
+
+  return path
+}
+
+export async function getSignedPlaybackUrl(url: string | null, expiresIn = 3600): Promise<string | null> {
+  if (!url) return url
+  const key = extractR2Key(url)
+  if (!key) return normalizeR2Url(url)
+
+  try {
+    return await getSignedR2Url(key, expiresIn)
+  } catch {
+    return normalizeR2Url(url)
+  }
 }
 
 export function generateUploadKey(filename: string, type: "video" | "thumbnail"): string {

@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { normalizeR2Url } from "@/lib/r2"
+import { getSignedPlaybackUrl, normalizeR2Url } from "@/lib/r2"
 import { getRequestingDomain, isDomainAllowedForVideo } from "@/lib/domain-security"
 
 export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -38,11 +38,12 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
 
     // For PUBLIC videos, allow access from anywhere
     if (video.visibility === "PUBLIC") {
+      const resolvedVideoUrl = await getSignedPlaybackUrl(video.videoUrl)
       return NextResponse.json({
         video: {
           id: video.id,
           title: video.title,
-          videoUrl: normalizeR2Url(video.videoUrl) ?? video.videoUrl,
+          videoUrl: resolvedVideoUrl ?? normalizeR2Url(video.videoUrl) ?? video.videoUrl,
           visibility: video.visibility,
           status: video.status,
         },
@@ -72,11 +73,12 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
       }
 
       // Domain is allowed
+      const resolvedVideoUrl = await getSignedPlaybackUrl(video.videoUrl)
       return NextResponse.json({
         video: {
           id: video.id,
           title: video.title,
-          videoUrl: normalizeR2Url(video.videoUrl) ?? video.videoUrl,
+          videoUrl: resolvedVideoUrl ?? normalizeR2Url(video.videoUrl) ?? video.videoUrl,
           visibility: video.visibility,
           status: video.status,
         },

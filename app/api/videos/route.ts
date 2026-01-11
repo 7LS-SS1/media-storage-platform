@@ -3,6 +3,7 @@ import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { normalizeR2Url } from "@/lib/r2"
 import { createVideoSchema, videoQuerySchema } from "@/lib/validation"
+import { enqueueVideoTranscode } from "@/lib/video-transcode"
 
 const mapPluginVideo = (video: {
   id: string
@@ -81,6 +82,8 @@ export async function POST(request: NextRequest) {
         ),
       )
     }
+
+    enqueueVideoTranscode(video.id, video.videoUrl, video.mimeType)
 
     return NextResponse.json(
       {

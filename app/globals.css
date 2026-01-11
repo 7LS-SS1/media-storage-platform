@@ -122,4 +122,36 @@
   body {
     @apply bg-background text-foreground;
   }
+  input[type="range"].video-range {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    height: 0.5rem;
+  }
+  input[type="range"].video-range::-webkit-slider-runnable-track {
+    height: 0.25rem;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 999px;
+  }
+  input[type="range"].video-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 0.75rem;
+    width: 0.75rem;
+    border-radius: 999px;
+    background: #ffffff;
+    margin-top: -0.25rem;
+  }
+  input[type="range"].video-range::-moz-range-track {
+    height: 0.25rem;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 999px;
+  }
+  input[type="range"].video-range::-moz-range-thumb {
+    height: 0.75rem;
+    width: 0.75rem;
+    border-radius: 999px;
+    background: #ffffff;
+    border: none;
+  }
 }

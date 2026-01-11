@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { normalizeR2Url } from "@/lib/r2"
+import { getSignedPlaybackUrl, normalizeR2Url } from "@/lib/r2"
 import { updateVideoSchema } from "@/lib/validation"
 
 const mapPluginVideo = (video: {
@@ -73,9 +73,10 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
 
     const userAgent = request.headers.get("user-agent") ?? ""
     const isPluginRequest = Boolean(request.headers.get("authorization")) || userAgent.includes("7LS-Video-Publisher")
+    const resolvedVideoUrl = await getSignedPlaybackUrl(video.videoUrl)
     const normalizedVideo = {
       ...video,
-      videoUrl: normalizeR2Url(video.videoUrl) ?? video.videoUrl,
+      videoUrl: resolvedVideoUrl ?? normalizeR2Url(video.videoUrl) ?? video.videoUrl,
       thumbnailUrl: normalizeR2Url(video.thumbnailUrl),
     }
 
