@@ -18,6 +18,23 @@ export function useVideoControls({ videoRef, containerRef, sourceUrl }: UseVideo
   const [isSeeking, setIsSeeking] = useState(false)
   const seekingRef = useRef(false)
 
+  const getDuration = useCallback(() => {
+    const video = videoRef.current
+    if (!video) return 0
+    if (Number.isFinite(video.duration) && video.duration > 0) {
+      return video.duration
+    }
+    if (video.seekable && video.seekable.length > 0) {
+      try {
+        const end = video.seekable.end(video.seekable.length - 1)
+        return Number.isFinite(end) ? end : 0
+      } catch {
+        return 0
+      }
+    }
+    return 0
+  }, [videoRef])
+
   const setSeeking = useCallback((value: boolean) => {
     seekingRef.current = value
     setIsSeeking(value)
@@ -26,12 +43,12 @@ export function useVideoControls({ videoRef, containerRef, sourceUrl }: UseVideo
   const syncPlaybackState = useCallback(() => {
     const video = videoRef.current
     if (!video) return
-    setDuration(Number.isFinite(video.duration) ? video.duration : 0)
+    setDuration(getDuration())
     setCurrentTime(Number.isFinite(video.currentTime) ? video.currentTime : 0)
     setIsMuted(video.muted)
     setPlaybackRateState(video.playbackRate || 1)
     setIsPlaying(!video.paused && !video.ended)
-  }, [videoRef])
+  }, [getDuration, videoRef])
 
   useEffect(() => {
     const video = videoRef.current
@@ -42,6 +59,10 @@ export function useVideoControls({ videoRef, containerRef, sourceUrl }: UseVideo
     const handleTimeUpdate = () => {
       if (!seekingRef.current) {
         setCurrentTime(Number.isFinite(video.currentTime) ? video.currentTime : 0)
+      }
+      const nextDuration = getDuration()
+      if (nextDuration) {
+        setDuration(nextDuration)
       }
     }
     const handleLoaded = () => syncPlaybackState()
@@ -98,7 +119,8 @@ export function useVideoControls({ videoRef, containerRef, sourceUrl }: UseVideo
       const video = videoRef.current
       if (!video) return
       const max = Number.isFinite(video.duration) ? video.duration : duration
-      const nextTime = Math.min(Math.max(0, time), max || 0)
+      const upperBound = max && max > 0 ? max : null
+      const nextTime = upperBound ? Math.min(Math.max(0, time), upperBound) : Math.max(0, time)
       video.currentTime = nextTime
       setCurrentTime(nextTime)
     },

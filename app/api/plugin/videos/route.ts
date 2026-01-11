@@ -71,6 +71,11 @@ export async function GET(request: NextRequest) {
 
     const where: Record<string, unknown> = {
       status: "READY",
+      AND: [
+        {
+          OR: [{ mimeType: "video/mp4" }, { videoUrl: { endsWith: ".mp4" } }],
+        },
+      ],
     }
 
     if (since) {

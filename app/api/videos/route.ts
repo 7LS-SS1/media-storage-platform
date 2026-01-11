@@ -140,6 +140,14 @@ export async function GET(request: NextRequest) {
     const where: any = {
       status: "READY",
     }
+    if (isPluginRequest) {
+      const mp4Filter = { OR: [{ mimeType: "video/mp4" }, { videoUrl: { endsWith: ".mp4" } }] }
+      if (Array.isArray(where.AND)) {
+        where.AND.push(mp4Filter)
+      } else {
+        where.AND = [mp4Filter]
+      }
+    }
 
     // Search by title or description
     if (validatedQuery.search) {

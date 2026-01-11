@@ -81,6 +81,11 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     }
 
     if (isPluginRequest) {
+      const cleanUrl = normalizedVideo.videoUrl.split("?")[0].toLowerCase()
+      const isMp4 = video.mimeType?.toLowerCase() === "video/mp4" || cleanUrl.endsWith(".mp4")
+      if (!isMp4) {
+        return NextResponse.json({ error: "Video is still processing" }, { status: 409 })
+      }
       return NextResponse.json({ data: mapPluginVideo(normalizedVideo) })
     }
 

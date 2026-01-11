@@ -63,6 +63,13 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
+    const normalizedVideoUrl = normalizeR2Url(video.videoUrl) ?? video.videoUrl
+    const isMp4 =
+      video.mimeType?.toLowerCase() === "video/mp4" || normalizedVideoUrl.toLowerCase().endsWith(".mp4")
+    if (!isMp4) {
+      return NextResponse.json({ error: "Video is still processing" }, { status: 409 })
+    }
+
     return NextResponse.json({ data: mapVideo(video) })
   } catch (error) {
     console.error("Plugin get video error:", error)
