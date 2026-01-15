@@ -14,6 +14,23 @@ let cachedClient: S3Client | null = null
 let cachedConfig: R2Config | null = null
 const R2_KEY_PREFIX = "media-storage"
 
+function normalizeEndpoint(endpoint: string, bucketName: string): string {
+  try {
+    const parsed = new URL(endpoint)
+    const cleanPath = parsed.pathname.replace(/\/+$/, "")
+    const bucketSuffix = `/${bucketName}`.toLowerCase()
+    if (cleanPath.toLowerCase().endsWith(bucketSuffix)) {
+      const nextPath = cleanPath.slice(0, -bucketSuffix.length) || "/"
+      parsed.pathname = nextPath
+    } else {
+      parsed.pathname = cleanPath || "/"
+    }
+    return parsed.toString().replace(/\/$/, "")
+  } catch {
+    return endpoint.replace(/\/+$/, "")
+  }
+}
+
 function getR2Config(): R2Config {
   if (cachedConfig) return cachedConfig
 
@@ -30,7 +47,7 @@ function getR2Config(): R2Config {
   }
 
   cachedConfig = {
-    endpoint: R2_ENDPOINT!,
+    endpoint: normalizeEndpoint(R2_ENDPOINT!, R2_BUCKET_NAME!),
     accessKeyId: R2_ACCESS_KEY_ID!,
     secretAccessKey: R2_SECRET_ACCESS_KEY!,
     bucketName: R2_BUCKET_NAME!,

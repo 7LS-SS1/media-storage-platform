@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { normalizeR2Url } from "@/lib/r2"
+import { getSignedPlaybackUrl, normalizeR2Url } from "@/lib/r2"
 
 const DEFAULT_PAGE = 1
 const DEFAULT_PER_PAGE = 20
@@ -34,7 +34,7 @@ const parseSinceDate = (value: string | null) => {
   return null
 }
 
-const mapVideo = (video: {
+const mapVideo = async (video: {
   id: string
   title: string
   description: string | null
@@ -44,17 +44,20 @@ const mapVideo = (video: {
   createdAt: Date
   updatedAt: Date
   category?: { name: string } | null
-}) => ({
-  id: video.id,
-  title: video.title,
-  description: video.description ?? "",
-  video_url: normalizeR2Url(video.videoUrl),
-  thumbnail_url: normalizeR2Url(video.thumbnailUrl),
-  duration: video.duration,
-  tags: video.category?.name ? [video.category.name] : [],
-  created_at: video.createdAt,
-  updated_at: video.updatedAt,
-})
+}) => {
+  const signedUrl = await getSignedPlaybackUrl(video.videoUrl)
+  return {
+    id: video.id,
+    title: video.title,
+    description: video.description ?? "",
+    video_url: signedUrl ?? normalizeR2Url(video.videoUrl),
+    thumbnail_url: normalizeR2Url(video.thumbnailUrl),
+    duration: video.duration,
+    tags: video.category?.name ? [video.category.name] : [],
+    created_at: video.createdAt,
+    updated_at: video.updatedAt,
+  }
+}
 
 // GET /videos?page={n}&per_page={n}&since={timestamp}
 export async function GET(request: NextRequest) {
@@ -112,8 +115,10 @@ export async function GET(request: NextRequest) {
     const totalPages = Math.ceil(total / perPage)
     const hasMore = page * perPage < total
 
+    const payload = await Promise.all(videos.map((video) => mapVideo(video)))
+
     return NextResponse.json({
-      data: videos.map((video) => mapVideo(video)),
+      data: payload,
       pagination: {
         page,
         per_page: perPage,

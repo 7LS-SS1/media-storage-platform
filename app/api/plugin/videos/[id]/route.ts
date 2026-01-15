@@ -1,10 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { normalizeR2Url } from "@/lib/r2"
+import { getSignedPlaybackUrl, normalizeR2Url } from "@/lib/r2"
 import { updateVideoSchema } from "@/lib/validation"
 
-const mapVideo = (video: {
+const mapVideo = async (video: {
   id: string
   title: string
   description: string | null
@@ -14,17 +14,20 @@ const mapVideo = (video: {
   createdAt: Date
   updatedAt: Date
   category?: { name: string } | null
-}) => ({
-  id: video.id,
-  title: video.title,
-  description: video.description ?? "",
-  video_url: normalizeR2Url(video.videoUrl),
-  thumbnail_url: normalizeR2Url(video.thumbnailUrl),
-  duration: video.duration,
-  tags: video.category?.name ? [video.category.name] : [],
-  created_at: video.createdAt,
-  updated_at: video.updatedAt,
-})
+}) => {
+  const signedUrl = await getSignedPlaybackUrl(video.videoUrl)
+  return {
+    id: video.id,
+    title: video.title,
+    description: video.description ?? "",
+    video_url: signedUrl ?? normalizeR2Url(video.videoUrl),
+    thumbnail_url: normalizeR2Url(video.thumbnailUrl),
+    duration: video.duration,
+    tags: video.category?.name ? [video.category.name] : [],
+    created_at: video.createdAt,
+    updated_at: video.updatedAt,
+  }
+}
 
 // GET /videos/{id}
 export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -70,7 +73,8 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
       return NextResponse.json({ error: "Video is still processing" }, { status: 409 })
     }
 
-    return NextResponse.json({ data: mapVideo(video) })
+    const payload = await mapVideo(video)
+    return NextResponse.json({ data: payload })
   } catch (error) {
     console.error("Plugin get video error:", error)
     return NextResponse.json({ error: "Failed to fetch video" }, { status: 500 })
