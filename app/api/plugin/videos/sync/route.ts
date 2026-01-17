@@ -11,7 +11,30 @@ const toTitle = (key: string) => {
   return base.replace(/[-_]+/g, " ").trim().slice(0, 200) || "Untitled video"
 }
 
-export async function POST(request: NextRequest) {
+const parseLimit = (value: unknown) => {
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (typeof value === "string") {
+    const numeric = Number(value)
+    if (Number.isFinite(numeric)) return numeric
+  }
+  return undefined
+}
+
+const buildSyncOptions = (input: { cursor?: unknown; limit?: unknown }) => {
+  const continuationToken = typeof input.cursor === "string" && input.cursor.length > 0 ? input.cursor : undefined
+  const limitValue = parseLimit(input.limit)
+  const maxKeys =
+    typeof limitValue === "number"
+      ? Math.min(Math.max(Math.floor(limitValue), 1), MAX_BATCH)
+      : MAX_BATCH
+
+  return { continuationToken, maxKeys }
+}
+
+const handleSync = async (
+  request: NextRequest,
+  options: { continuationToken?: string; maxKeys: number },
+) => {
   try {
     const user = await getUserFromRequest(request)
     if (!user) {
@@ -22,17 +45,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    const body = await request.json().catch(() => ({}))
-    const continuationToken =
-      typeof body.cursor === "string" && body.cursor.length > 0 ? body.cursor : undefined
-    const maxKeys =
-      typeof body.limit === "number" && Number.isFinite(body.limit)
-        ? Math.min(Math.max(Math.floor(body.limit), 1), MAX_BATCH)
-        : MAX_BATCH
-
     const { objects, nextContinuationToken } = await listR2VideoObjects({
-      continuationToken,
-      maxKeys,
+      continuationToken: options.continuationToken,
+      maxKeys: options.maxKeys,
     })
 
     const mp4Objects = objects.filter((item) => item.key.toLowerCase().endsWith(".mp4"))
@@ -78,4 +93,19 @@ export async function POST(request: NextRequest) {
     console.error("Sync videos error:", error)
     return NextResponse.json({ error: "Failed to sync videos" }, { status: 500 })
   }
+}
+
+export async function POST(request: NextRequest) {
+  const body = await request.json().catch(() => ({}))
+  const options = buildSyncOptions({ cursor: body.cursor, limit: body.limit })
+  return await handleSync(request, options)
+}
+
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url)
+  const options = buildSyncOptions({
+    cursor: searchParams.get("cursor"),
+    limit: searchParams.get("limit"),
+  })
+  return await handleSync(request, options)
 }
