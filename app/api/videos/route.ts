@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { getSignedPlaybackUrl, normalizeR2Url } from "@/lib/r2"
+import { getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib/r2"
 import { createVideoSchema, videoQuerySchema } from "@/lib/validation"
 import { enqueueVideoTranscode } from "@/lib/video-transcode"
 
@@ -20,6 +20,7 @@ const mapPluginVideo = (video: {
   title: video.title,
   description: video.description ?? "",
   video_url: normalizeR2Url(video.videoUrl),
+  playback_url: toPublicPlaybackUrl(video.videoUrl) ?? normalizeR2Url(video.videoUrl),
   thumbnail_url: normalizeR2Url(video.thumbnailUrl),
   duration: video.duration,
   tags: video.category?.name ? [video.category.name] : [],

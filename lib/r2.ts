@@ -130,6 +130,12 @@ export function normalizeR2Url(url: string | null): string | null {
   }
 }
 
+export function toPublicPlaybackUrl(url: string | null): string | null {
+  const normalized = normalizeR2Url(url)
+  if (!normalized) return normalized
+  return normalized.split("?")[0].split("#")[0]
+}
+
 export function extractR2Key(url: string): string | null {
   if (!url) return null
   const withoutQuery = url.split("?")[0]?.split("#")[0] ?? ""

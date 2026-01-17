@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { getSignedPlaybackUrl, normalizeR2Url } from "@/lib/r2"
+import { getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib/r2"
 
 const DEFAULT_PAGE = 1
 const DEFAULT_PER_PAGE = 20
@@ -46,11 +46,13 @@ const mapVideo = async (video: {
   category?: { name: string } | null
 }) => {
   const signedUrl = await getSignedPlaybackUrl(video.videoUrl)
+  const publicUrl = toPublicPlaybackUrl(video.videoUrl) ?? normalizeR2Url(video.videoUrl)
   return {
     id: video.id,
     title: video.title,
     description: video.description ?? "",
     video_url: signedUrl ?? normalizeR2Url(video.videoUrl),
+    playback_url: publicUrl ?? signedUrl ?? normalizeR2Url(video.videoUrl),
     thumbnail_url: normalizeR2Url(video.thumbnailUrl),
     duration: video.duration,
     tags: video.category?.name ? [video.category.name] : [],
