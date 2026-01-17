@@ -1,5 +1,5 @@
 import { createReadStream } from "fs"
-import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3"
+import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3"
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 
 type R2Config = {
@@ -227,6 +227,52 @@ export async function getSignedR2Url(key: string, expiresIn = 3600): Promise<str
   })
 
   return await getSignedUrl(getR2Client(config), command, { expiresIn })
+}
+
+export type R2Object = {
+  key: string
+  size?: number
+  lastModified?: Date
+}
+
+export async function listR2Objects(options: {
+  prefix?: string
+  continuationToken?: string
+  maxKeys?: number
+}): Promise<{ objects: R2Object[]; nextContinuationToken?: string }> {
+  const config = getR2Config()
+  const command = new ListObjectsV2Command({
+    Bucket: config.bucketName,
+    Prefix: options.prefix,
+    ContinuationToken: options.continuationToken,
+    MaxKeys: options.maxKeys ?? 1000,
+  })
+
+  const response = await getR2Client(config).send(command)
+  const objects =
+    response.Contents?.flatMap((item) => {
+      if (!item.Key || item.Key.endsWith("/")) return []
+      return [
+        {
+          key: item.Key,
+          size: item.Size,
+          lastModified: item.LastModified,
+        },
+      ]
+    }) ?? []
+
+  return {
+    objects,
+    nextContinuationToken: response.NextContinuationToken,
+  }
+}
+
+export async function listR2VideoObjects(options: { continuationToken?: string; maxKeys?: number }) {
+  return await listR2Objects({
+    prefix: `${R2_KEY_PREFIX}/videos/`,
+    continuationToken: options.continuationToken,
+    maxKeys: options.maxKeys,
+  })
 }
 
 /**
