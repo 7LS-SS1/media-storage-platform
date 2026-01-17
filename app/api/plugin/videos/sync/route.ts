@@ -53,15 +53,49 @@ const handleSync = async (
     const mp4Objects = objects.filter((item) => item.key.toLowerCase().endsWith(".mp4"))
 
     const existingVideos = await prisma.video.findMany({
-      select: { videoUrl: true },
+      select: { id: true, videoUrl: true },
     })
-    const existingKeys = new Set(
-      existingVideos
-        .map((video) => extractR2Key(video.videoUrl))
-        .filter((value): value is string => Boolean(value)),
-    )
+    const existingKeyMap = new Map<string, { id: string }>()
+    for (const video of existingVideos) {
+      const key = extractR2Key(video.videoUrl)
+      if (key) {
+        existingKeyMap.set(key, { id: video.id })
+      }
+    }
 
-    const toCreate = mp4Objects.filter((item) => !existingKeys.has(item.key))
+    const toCreate: typeof mp4Objects = []
+    const toUpdate: Array<{ id: string; key: string; size?: number }> = []
+
+    for (const item of mp4Objects) {
+      if (existingKeyMap.has(item.key)) {
+        continue
+      }
+
+      const tsKey = item.key.replace(/\.mp4$/i, ".ts")
+      const existingTs = existingKeyMap.get(tsKey)
+      if (existingTs) {
+        toUpdate.push({ id: existingTs.id, key: item.key, size: item.size })
+        continue
+      }
+
+      toCreate.push(item)
+    }
+
+    if (toUpdate.length > 0) {
+      await Promise.all(
+        toUpdate.map((item) =>
+          prisma.video.update({
+            where: { id: item.id },
+            data: {
+              videoUrl: getPublicR2Url(item.key),
+              mimeType: "video/mp4",
+              status: "READY",
+              fileSize: item.size ?? undefined,
+            },
+          }),
+        ),
+      )
+    }
 
     if (toCreate.length > 0) {
       await prisma.video.createMany({
@@ -86,7 +120,8 @@ const handleSync = async (
       scanned: objects.length,
       discovered: mp4Objects.length,
       created: toCreate.length,
-      skipped: mp4Objects.length - toCreate.length,
+      updated: toUpdate.length,
+      skipped: mp4Objects.length - toCreate.length - toUpdate.length,
       nextCursor: nextContinuationToken ?? null,
     })
   } catch (error) {
