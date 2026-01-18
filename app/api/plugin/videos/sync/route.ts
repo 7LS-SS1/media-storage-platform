@@ -3,6 +3,7 @@ import path from "path"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { extractR2Key, getPublicR2Url, listR2VideoObjects } from "@/lib/r2"
+import { enqueueVideoTranscode } from "@/lib/video-transcode"
 
 const MAX_BATCH = 1000
 
@@ -51,6 +52,8 @@ const handleSync = async (
     })
 
     const mp4Objects = objects.filter((item) => item.key.toLowerCase().endsWith(".mp4"))
+    const tsObjects = objects.filter((item) => item.key.toLowerCase().endsWith(".ts"))
+    const mp4KeySet = new Set(mp4Objects.map((item) => item.key))
 
     const existingVideos = await prisma.video.findMany({
       select: { id: true, videoUrl: true },
@@ -65,6 +68,7 @@ const handleSync = async (
 
     const toCreate: typeof mp4Objects = []
     const toUpdate: Array<{ id: string; key: string; size?: number }> = []
+    const toCreateTs: typeof tsObjects = []
 
     for (const item of mp4Objects) {
       if (existingKeyMap.has(item.key)) {
@@ -79,6 +83,19 @@ const handleSync = async (
       }
 
       toCreate.push(item)
+    }
+
+    for (const item of tsObjects) {
+      if (existingKeyMap.has(item.key)) {
+        continue
+      }
+
+      const mp4Key = item.key.replace(/\.ts$/i, ".mp4")
+      if (existingKeyMap.has(mp4Key) || mp4KeySet.has(mp4Key)) {
+        continue
+      }
+
+      toCreateTs.push(item)
     }
 
     if (toUpdate.length > 0) {
@@ -115,13 +132,41 @@ const handleSync = async (
       })
     }
 
+    if (toCreateTs.length > 0) {
+      await Promise.all(
+        toCreateTs.map(async (item) => {
+          const video = await prisma.video.create({
+            data: {
+              title: toTitle(item.key),
+              description: null,
+              videoUrl: getPublicR2Url(item.key),
+              thumbnailUrl: null,
+              duration: null,
+              fileSize: item.size ?? null,
+              mimeType: "video/mp2t",
+              visibility: "PUBLIC",
+              status: "READY",
+              categoryId: null,
+              createdById: user.userId,
+            },
+          })
+
+          enqueueVideoTranscode(video.id, video.videoUrl, video.mimeType)
+        }),
+      )
+    }
+
+    const discovered = mp4Objects.length + tsObjects.length
+    const created = toCreate.length + toCreateTs.length
+    const skipped = discovered - created - toUpdate.length
+
     return NextResponse.json({
       message: "Sync completed",
       scanned: objects.length,
-      discovered: mp4Objects.length,
-      created: toCreate.length,
+      discovered,
+      created,
       updated: toUpdate.length,
-      skipped: mp4Objects.length - toCreate.length - toUpdate.length,
+      skipped,
       nextCursor: nextContinuationToken ?? null,
     })
   } catch (error) {
