@@ -65,6 +65,7 @@ model Video {
   id           String          @id @default(cuid())
   title        String
   description  String?
+  tags         String[]        @default([])
   videoUrl     String          @map("video_url") // R2 URL
   thumbnailUrl String?         @map("thumbnail_url") // R2 URL
   duration     Int?            // in seconds
@@ -84,12 +85,25 @@ model Video {
   category      Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   createdBy     User            @relation(fields: [createdById], references: [id], onDelete: Cascade)
   allowedDomains VideoAllowedDomain[]
+  actors        Actor[]
 
   @@index([categoryId])
   @@index([createdById])
   @@index([status])
   @@index([visibility])
   @@map("videos")
+}
+
+// Actor Model
+model Actor {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  videos Video[]
+
+  @@map("actors")
 }
 
 // Allowed Domains for Video Access

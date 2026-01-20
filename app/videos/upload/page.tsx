@@ -1,10 +1,11 @@
 "use client"
 
-import { useEffect, useMemo, useState, type FormEvent } from "react"
+import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, UploadCloud } from "lucide-react"
+import { ArrowLeft, UploadCloud, X } from "lucide-react"
 import { toast } from "sonner"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -12,7 +13,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import { ActorSelect } from "@/components/actor-select"
+import { STANDARD_TAGS } from "@/lib/standard-tags"
 
 interface Category {
   id: string
@@ -31,6 +35,7 @@ export default function UploadVideoPage() {
   const router = useRouter()
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
+  const [actors, setActors] = useState<string[]>([])
   const [categoryId, setCategoryId] = useState<string>("none")
   const [visibility, setVisibility] = useState<Visibility>("PUBLIC")
   const [allowedDomainIds, setAllowedDomainIds] = useState<string[]>([])
@@ -38,10 +43,125 @@ export default function UploadVideoPage() {
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
   const [domains, setDomains] = useState<Domain[]>([])
+  const [newCategoryName, setNewCategoryName] = useState("")
+  const [creatingCategory, setCreatingCategory] = useState(false)
+  const [categoryError, setCategoryError] = useState<string | null>(null)
+  const [enableNewCategory, setEnableNewCategory] = useState(false)
+  const [tagInput, setTagInput] = useState("")
+  const [tags, setTags] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [uploadStatus, setUploadStatus] = useState("")
   const [uploadProgress, setUploadProgress] = useState(0)
   const [errors, setErrors] = useState<Record<string, string>>({})
+
+  const normalizedTags = useMemo(() => new Set(tags.map((tag) => tag.toLowerCase())), [tags])
+
+  const slugify = (value: string) =>
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "")
+
+  const addTags = (value: string) => {
+    const nextTags = value
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+    if (nextTags.length === 0) return
+    setTags((current) => {
+      const seen = new Set(current.map((tag) => tag.toLowerCase()))
+      const merged = [...current]
+      nextTags.forEach((tag) => {
+        const key = tag.toLowerCase()
+        if (!seen.has(key)) {
+          seen.add(key)
+          merged.push(tag)
+        }
+      })
+      return merged
+    })
+  }
+
+  const handleAddTag = () => {
+    if (!tagInput.trim()) return
+    addTags(tagInput)
+    setTagInput("")
+  }
+
+  const handleTagKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.preventDefault()
+      handleAddTag()
+    }
+  }
+
+  const removeTag = (tagToRemove: string) => {
+    setTags((current) => current.filter((tag) => tag !== tagToRemove))
+  }
+
+  const handleToggleNewCategory = (checked: boolean) => {
+    setEnableNewCategory(checked)
+    if (!checked) {
+      setNewCategoryName("")
+      setCategoryError(null)
+    }
+  }
+
+  const toggleStandardTag = (tag: string) => {
+    setTags((current) => {
+      const key = tag.toLowerCase()
+      const exists = current.some((value) => value.toLowerCase() === key)
+      if (exists) {
+        return current.filter((value) => value.toLowerCase() !== key)
+      }
+      return [...current, tag]
+    })
+  }
+
+  const handleCreateCategory = async () => {
+    const name = newCategoryName.trim()
+    if (!name) {
+      setCategoryError("กรุณากรอกชื่อหมวดหมู่")
+      return
+    }
+
+    setCreatingCategory(true)
+    setCategoryError(null)
+
+    try {
+      const response = await fetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          name,
+          slug: slugify(name) || name,
+        }),
+      })
+
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to create category")
+      }
+
+      setCategories((current) => {
+        const next = [...current, data.category]
+        next.sort((a, b) => a.name.localeCompare(b.name))
+        return next
+      })
+      setCategoryId(data.category.id)
+      setNewCategoryName("")
+      toast.success("เพิ่มหมวดหมู่สำเร็จ")
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to create category"
+      setCategoryError(message)
+      toast.error(message)
+    } finally {
+      setCreatingCategory(false)
+    }
+  }
 
   useEffect(() => {
     async function fetchCategories() {
@@ -181,6 +301,8 @@ export default function UploadVideoPage() {
         body: JSON.stringify({
           title: title.trim(),
           description: description.trim() || undefined,
+          tags,
+          actors,
           categoryId: categoryId === "none" ? undefined : categoryId,
           visibility,
           allowedDomainIds: visibility === "DOMAIN_RESTRICTED" ? allowedDomainIds : undefined,
@@ -264,6 +386,39 @@ export default function UploadVideoPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                    <div className="flex items-center justify-between rounded-md border border-dashed px-3 py-2">
+                      <Label htmlFor="new-category-switch">เพิ่มหมวดหมู่ใหม่</Label>
+                      <Switch
+                        id="new-category-switch"
+                        checked={enableNewCategory}
+                        onCheckedChange={handleToggleNewCategory}
+                      />
+                    </div>
+                    {enableNewCategory && (
+                      <div className="space-y-2 rounded-md border border-dashed p-3">
+                        <Label htmlFor="new-category">ชื่อหมวดหมู่ใหม่</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            id="new-category"
+                            placeholder="พิมพ์ชื่อหมวดหมู่"
+                            value={newCategoryName}
+                            onChange={(event) => {
+                              setNewCategoryName(event.target.value)
+                              if (categoryError) setCategoryError(null)
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={handleCreateCategory}
+                            disabled={creatingCategory || !newCategoryName.trim()}
+                          >
+                            {creatingCategory ? "กำลังเพิ่ม..." : "เพิ่ม"}
+                          </Button>
+                        </div>
+                        {categoryError && <p className="text-sm text-destructive">{categoryError}</p>}
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -279,6 +434,70 @@ export default function UploadVideoPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="tags-input">แท็ก</Label>
+                  <div className="flex flex-wrap gap-2">
+                    <Input
+                      id="tags-input"
+                      placeholder="พิมพ์แท็กแล้วกด Enter หรือใส่คอมม่า"
+                      value={tagInput}
+                      onChange={(event) => setTagInput(event.target.value)}
+                      onKeyDown={handleTagKeyDown}
+                      className="min-w-[220px] flex-1"
+                    />
+                    <Button type="button" variant="outline" onClick={handleAddTag} disabled={!tagInput.trim()}>
+                      เพิ่มแท็ก
+                    </Button>
+                  </div>
+                  {tags.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {tags.map((tag) => (
+                        <Badge key={tag} variant="secondary" className="flex items-center gap-1">
+                          {tag}
+                          <button
+                            type="button"
+                            onClick={() => removeTag(tag)}
+                            className="text-muted-foreground hover:text-foreground"
+                            aria-label={`Remove tag ${tag}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground">แยกแท็กด้วยคอมม่า และกด Enter เพื่อเพิ่ม</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>แท็กมาตรฐาน</Label>
+                  <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto rounded-md border p-2">
+                    {STANDARD_TAGS.map((tag) => {
+                      const selected = normalizedTags.has(tag.toLowerCase())
+                      return (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => toggleStandardTag(tag)}
+                          className={`rounded-full border px-3 py-1 text-xs transition ${
+                            selected
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-muted-foreground/30 text-muted-foreground hover:border-primary"
+                          }`}
+                        >
+                          {tag}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground">คลิกเพื่อเพิ่ม/ลบแท็กจากรายการมาตรฐาน</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>ดารา/นักแสดง</Label>
+                  <ActorSelect value={actors} onChange={setActors} />
                 </div>
 
                 {visibility === "DOMAIN_RESTRICTED" && (

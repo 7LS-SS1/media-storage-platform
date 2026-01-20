@@ -26,6 +26,8 @@ interface Video {
   id: string
   title: string
   description: string | null
+  actors: string[]
+  tags: string[]
   views: number
   visibility: string
   status: string
@@ -107,6 +109,16 @@ export function VideoInfo({ videoId }: VideoInfoProps) {
             <Badge>{video.visibility}</Badge>
             <Badge variant="outline">{video.status}</Badge>
             {video.category && <Badge variant="secondary">{video.category.name}</Badge>}
+            {video.tags?.map((tag) => (
+              <Badge key={tag} variant="secondary">
+                {tag}
+              </Badge>
+            ))}
+            {video.actors?.map((actor) => (
+              <Badge key={actor} variant="outline">
+                {actor}
+              </Badge>
+            ))}
           </div>
 
           <div className="space-y-2 text-sm">

@@ -2,6 +2,8 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib/r2"
+import { normalizeActors } from "@/lib/actors"
+import { mergeTags, normalizeTags } from "@/lib/tags"
 import { updateVideoSchema } from "@/lib/validation"
 
 const mapPluginVideo = (video: {
@@ -13,6 +15,7 @@ const mapPluginVideo = (video: {
   duration: number | null
   createdAt: Date
   updatedAt: Date
+  tags: string[]
   category?: { name: string } | null
 }) => ({
   id: video.id,
@@ -22,7 +25,7 @@ const mapPluginVideo = (video: {
   playback_url: toPublicPlaybackUrl(video.videoUrl) ?? normalizeR2Url(video.videoUrl),
   thumbnail_url: normalizeR2Url(video.thumbnailUrl),
   duration: video.duration,
-  tags: video.category?.name ? [video.category.name] : [],
+  tags: mergeTags(video.tags, video.category),
   created_at: video.createdAt,
   updated_at: video.updatedAt,
 })
@@ -47,6 +50,11 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
             name: true,
             email: true,
             role: true,
+          },
+        },
+        actors: {
+          select: {
+            name: true,
           },
         },
         allowedDomains: {
@@ -75,8 +83,10 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     const userAgent = request.headers.get("user-agent") ?? ""
     const isPluginRequest = Boolean(request.headers.get("authorization")) || userAgent.includes("7LS-Video-Publisher")
     const resolvedVideoUrl = await getSignedPlaybackUrl(video.videoUrl)
+    const actorNames = video.actors.map((actor) => actor.name)
     const normalizedVideo = {
       ...video,
+      actors: actorNames,
       videoUrl: resolvedVideoUrl ?? normalizeR2Url(video.videoUrl) ?? video.videoUrl,
       thumbnailUrl: normalizeR2Url(video.thumbnailUrl),
     }
@@ -125,6 +135,8 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
 
     const body = await request.json()
     const validatedData = updateVideoSchema.parse(body)
+    const actors =
+      validatedData.actors === undefined ? null : normalizeActors(validatedData.actors)
 
     // Update video
     const updatedVideo = await prisma.video.update({
@@ -132,9 +144,24 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
       data: {
         title: validatedData.title,
         description: validatedData.description,
+        tags: validatedData.tags === undefined ? undefined : normalizeTags(validatedData.tags),
         categoryId: validatedData.categoryId,
         visibility: validatedData.visibility,
         status: validatedData.status,
+        actors:
+          actors === null
+            ? undefined
+            : {
+                set: [],
+                ...(actors.length > 0
+                  ? {
+                      connectOrCreate: actors.map((name) => ({
+                        where: { name },
+                        create: { name },
+                      })),
+                    }
+                  : {}),
+              },
       },
       include: {
         category: true,

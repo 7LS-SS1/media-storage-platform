@@ -3,8 +3,9 @@
 import React, { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Save } from "lucide-react"
+import { ArrowLeft, Save, X } from "lucide-react"
 import { toast } from "sonner"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -12,6 +13,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { ActorSelect } from "@/components/actor-select"
+import { STANDARD_TAGS } from "@/lib/standard-tags"
 
 interface Category {
   id: string
@@ -32,6 +35,8 @@ interface Video {
   id: string
   title: string
   description: string | null
+  actors: string[]
+  tags: string[]
   categoryId: string | null
   visibility: "PUBLIC" | "PRIVATE" | "DOMAIN_RESTRICTED"
   allowedDomains?: VideoAllowedDomain[]
@@ -48,6 +53,9 @@ export default function EditVideoPage({ params }: PageProps) {
   const router = useRouter()
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
+  const [actors, setActors] = useState<string[]>([])
+  const [tags, setTags] = useState<string[]>([])
+  const [tagInput, setTagInput] = useState("")
   const [categoryId, setCategoryId] = useState<string>("none")
   const [visibility, setVisibility] = useState<Visibility>("PUBLIC")
   const [allowedDomainIds, setAllowedDomainIds] = useState<string[]>([])
@@ -57,6 +65,8 @@ export default function EditVideoPage({ params }: PageProps) {
   const [saving, setSaving] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
+
+  const normalizedTags = useMemo(() => new Set(tags.map((tag) => tag.toLowerCase())), [tags])
 
   useEffect(() => {
     let cancelled = false
@@ -80,6 +90,8 @@ export default function EditVideoPage({ params }: PageProps) {
           const video = videoData.video
           setTitle(video.title ?? "")
           setDescription(video.description ?? "")
+          setActors(video.actors ?? [])
+          setTags(video.tags ?? [])
           setCategoryId(video.categoryId ?? "none")
           setVisibility(video.visibility ?? "PUBLIC")
           setAllowedDomainIds(video.allowedDomains?.map((allowed) => allowed.domainId) ?? [])
@@ -150,6 +162,54 @@ export default function EditVideoPage({ params }: PageProps) {
     )
   }
 
+  const addTags = (value: string) => {
+    const nextTags = value
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+    if (nextTags.length === 0) return
+    setTags((current) => {
+      const seen = new Set(current.map((tag) => tag.toLowerCase()))
+      const merged = [...current]
+      nextTags.forEach((tag) => {
+        const key = tag.toLowerCase()
+        if (!seen.has(key)) {
+          seen.add(key)
+          merged.push(tag)
+        }
+      })
+      return merged
+    })
+  }
+
+  const handleAddTag = () => {
+    if (!tagInput.trim()) return
+    addTags(tagInput)
+    setTagInput("")
+  }
+
+  const handleTagKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.preventDefault()
+      handleAddTag()
+    }
+  }
+
+  const removeTag = (tagToRemove: string) => {
+    setTags((current) => current.filter((tag) => tag !== tagToRemove))
+  }
+
+  const toggleStandardTag = (tag: string) => {
+    setTags((current) => {
+      const key = tag.toLowerCase()
+      const exists = current.some((value) => value.toLowerCase() === key)
+      if (exists) {
+        return current.filter((value) => value.toLowerCase() !== key)
+      }
+      return [...current, tag]
+    })
+  }
+
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     const nextErrors: Record<string, string> = {}
@@ -176,6 +236,8 @@ export default function EditVideoPage({ params }: PageProps) {
         body: JSON.stringify({
           title: title.trim(),
           description: description.trim() ? description.trim() : null,
+          actors,
+          tags,
           categoryId: categoryId === "none" ? null : categoryId,
           visibility,
           allowedDomainIds: visibility === "DOMAIN_RESTRICTED" ? allowedDomainIds : undefined,
@@ -283,6 +345,70 @@ export default function EditVideoPage({ params }: PageProps) {
                         </SelectContent>
                       </Select>
                     </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="tags-input">แท็ก</Label>
+                    <div className="flex flex-wrap gap-2">
+                      <Input
+                        id="tags-input"
+                        placeholder="พิมพ์แท็กแล้วกด Enter หรือใส่คอมม่า"
+                        value={tagInput}
+                        onChange={(event) => setTagInput(event.target.value)}
+                        onKeyDown={handleTagKeyDown}
+                        className="min-w-[220px] flex-1"
+                      />
+                      <Button type="button" variant="outline" onClick={handleAddTag} disabled={!tagInput.trim()}>
+                        เพิ่มแท็ก
+                      </Button>
+                    </div>
+                    {tags.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {tags.map((tag) => (
+                          <Badge key={tag} variant="secondary" className="flex items-center gap-1">
+                            {tag}
+                            <button
+                              type="button"
+                              onClick={() => removeTag(tag)}
+                              className="text-muted-foreground hover:text-foreground"
+                              aria-label={`Remove tag ${tag}`}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground">แยกแท็กด้วยคอมม่า และกด Enter เพื่อเพิ่ม</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>แท็กมาตรฐาน</Label>
+                    <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto rounded-md border p-2">
+                      {STANDARD_TAGS.map((tag) => {
+                        const selected = normalizedTags.has(tag.toLowerCase())
+                        return (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => toggleStandardTag(tag)}
+                            className={`rounded-full border px-3 py-1 text-xs transition ${
+                              selected
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-muted-foreground/30 text-muted-foreground hover:border-primary"
+                            }`}
+                          >
+                            {tag}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <p className="text-xs text-muted-foreground">คลิกเพื่อเพิ่ม/ลบแท็กจากรายการมาตรฐาน</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>ดารา/นักแสดง</Label>
+                    <ActorSelect value={actors} onChange={setActors} />
                   </div>
 
                   {visibility === "DOMAIN_RESTRICTED" && (

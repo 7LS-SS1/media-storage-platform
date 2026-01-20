@@ -2,6 +2,8 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib/r2"
+import { normalizeActors } from "@/lib/actors"
+import { mergeTags, normalizeTags } from "@/lib/tags"
 import { createVideoSchema, videoQuerySchema } from "@/lib/validation"
 import { enqueueVideoTranscode } from "@/lib/video-transcode"
 
@@ -14,6 +16,7 @@ const mapPluginVideo = (video: {
   duration: number | null
   createdAt: Date
   updatedAt: Date
+  tags: string[]
   category?: { name: string } | null
 }) => ({
   id: video.id,
@@ -23,7 +26,7 @@ const mapPluginVideo = (video: {
   playback_url: toPublicPlaybackUrl(video.videoUrl) ?? normalizeR2Url(video.videoUrl),
   thumbnail_url: normalizeR2Url(video.thumbnailUrl),
   duration: video.duration,
-  tags: video.category?.name ? [video.category.name] : [],
+  tags: mergeTags(video.tags, video.category),
   created_at: video.createdAt,
   updated_at: video.updatedAt,
 })
@@ -44,10 +47,13 @@ export async function POST(request: NextRequest) {
     const validatedData = createVideoSchema.parse(body)
 
     // Create video with relations
+    const tags = normalizeTags(validatedData.tags)
+    const actors = normalizeActors(validatedData.actors)
     const video = await prisma.video.create({
       data: {
         title: validatedData.title,
         description: validatedData.description,
+        tags,
         videoUrl: body.videoUrl, // From upload endpoint
         thumbnailUrl: body.thumbnailUrl,
         duration: body.duration,
@@ -57,6 +63,15 @@ export async function POST(request: NextRequest) {
         status: "READY",
         categoryId: validatedData.categoryId,
         createdById: user.userId,
+        actors:
+          actors.length > 0
+            ? {
+                connectOrCreate: actors.map((name) => ({
+                  where: { name },
+                  create: { name },
+                })),
+              }
+            : undefined,
       },
       include: {
         category: true,

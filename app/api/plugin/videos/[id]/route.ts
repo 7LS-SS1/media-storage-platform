@@ -2,6 +2,8 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib/r2"
+import { normalizeActors } from "@/lib/actors"
+import { mergeTags, normalizeTags } from "@/lib/tags"
 import { updateVideoSchema } from "@/lib/validation"
 
 const mapVideo = async (video: {
@@ -13,6 +15,7 @@ const mapVideo = async (video: {
   duration: number | null
   createdAt: Date
   updatedAt: Date
+  tags: string[]
   category?: { name: string } | null
 }) => {
   const signedUrl = await getSignedPlaybackUrl(video.videoUrl)
@@ -25,7 +28,7 @@ const mapVideo = async (video: {
     playback_url: publicUrl ?? signedUrl ?? normalizeR2Url(video.videoUrl),
     thumbnail_url: normalizeR2Url(video.thumbnailUrl),
     duration: video.duration,
-    tags: video.category?.name ? [video.category.name] : [],
+    tags: mergeTags(video.tags, video.category),
     created_at: video.createdAt,
     updated_at: video.updatedAt,
   }
@@ -111,14 +114,31 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
     const body = await request.json().catch(() => ({}))
     const validatedData = updateVideoSchema.parse(body)
 
+    const actors =
+      validatedData.actors === undefined ? null : normalizeActors(validatedData.actors)
     const updatedVideo = await prisma.video.update({
       where: { id: params.id },
       data: {
         title: validatedData.title,
         description: validatedData.description,
+        tags: validatedData.tags === undefined ? undefined : normalizeTags(validatedData.tags),
         categoryId: validatedData.categoryId,
         visibility: validatedData.visibility,
         status: validatedData.status,
+        actors:
+          actors === null
+            ? undefined
+            : {
+                set: [],
+                ...(actors.length > 0
+                  ? {
+                      connectOrCreate: actors.map((name) => ({
+                        where: { name },
+                        create: { name },
+                      })),
+                    }
+                  : {}),
+              },
       },
       include: {
         category: true,

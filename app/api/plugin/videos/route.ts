@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib/r2"
+import { mergeTags } from "@/lib/tags"
 
 const DEFAULT_PAGE = 1
 const DEFAULT_PER_PAGE = 20
@@ -43,6 +44,7 @@ const mapVideo = async (video: {
   duration: number | null
   createdAt: Date
   updatedAt: Date
+  tags: string[]
   category?: { name: string } | null
 }) => {
   const signedUrl = await getSignedPlaybackUrl(video.videoUrl)
@@ -55,7 +57,7 @@ const mapVideo = async (video: {
     playback_url: publicUrl ?? signedUrl ?? normalizeR2Url(video.videoUrl),
     thumbnail_url: normalizeR2Url(video.thumbnailUrl),
     duration: video.duration,
-    tags: video.category?.name ? [video.category.name] : [],
+    tags: mergeTags(video.tags, video.category),
     created_at: video.createdAt,
     updated_at: video.updatedAt,
   }
