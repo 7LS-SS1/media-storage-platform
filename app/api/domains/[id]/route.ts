@@ -3,6 +3,7 @@ import { z } from "zod"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { createDomainSchema } from "@/lib/validation"
+import { canManageDomains } from "@/lib/roles"
 
 const updateDomainSchema = z
   .object({
@@ -18,7 +19,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const params = await props.params
   try {
     const user = await getUserFromRequest(request)
-    if (!user || user.role !== "ADMIN") {
+    if (!user || !canManageDomains(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -57,7 +58,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   const params = await props.params
   try {
     const user = await getUserFromRequest(request)
-    if (!user || user.role !== "ADMIN") {
+    if (!user || !canManageDomains(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 

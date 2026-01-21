@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { getUserFromRequest } from "@/lib/auth"
+import { canManageVideos } from "@/lib/roles"
 import { generateUploadKey, getPublicR2Url, getSignedUploadUrl } from "@/lib/r2"
 
 const MAX_FILE_SIZE = 5000 * 1024 * 1024 // 5000MB
@@ -21,7 +22,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    if (!["ADMIN", "EDITOR"].includes(user.role)) {
+    if (!canManageVideos(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 

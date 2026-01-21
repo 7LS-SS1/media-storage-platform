@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { canManageTokens } from "@/lib/roles"
 
 const MAX_EXPIRY_DAYS = 365
 
@@ -43,7 +44,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    if (user.role !== "ADMIN") {
+    if (!canManageTokens(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 

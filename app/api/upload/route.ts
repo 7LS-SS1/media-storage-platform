@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
+import { canManageVideos } from "@/lib/roles"
 import { generateUploadKey, uploadToR2 } from "@/lib/r2"
 
 const MAX_FILE_SIZE = 5000 * 1024 * 1024 // 500MB
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check role permission
-    if (!["ADMIN", "EDITOR"].includes(user.role)) {
+    if (!canManageVideos(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 

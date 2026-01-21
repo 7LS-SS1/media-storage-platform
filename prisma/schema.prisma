@@ -11,7 +11,9 @@ datasource db {
 
 // Enum Definitions
 enum UserRole {
+  SYSTEM
   ADMIN
+  STAFF
   EDITOR
   VIEWER
 }
@@ -78,16 +80,14 @@ model Video {
   updatedAt    DateTime        @updatedAt @map("updated_at")
 
   // Foreign Keys
-  categoryId String? @map("category_id")
   createdById String @map("created_by_id")
 
   // Relations
-  category      Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  categories    Category[]
   createdBy     User            @relation(fields: [createdById], references: [id], onDelete: Cascade)
   allowedDomains VideoAllowedDomain[]
   actors        Actor[]
 
-  @@index([categoryId])
   @@index([createdById])
   @@index([status])
   @@index([visibility])

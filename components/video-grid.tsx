@@ -15,7 +15,7 @@ interface Video {
   thumbnailUrl: string | null
   views: number
   createdAt: string
-  category: { name: string } | null
+  categories: { id: string; name: string }[]
   visibility: string
 }
 
@@ -102,7 +102,9 @@ export function VideoGrid() {
                       <Eye className="h-3 w-3" />
                       {video.views} views
                     </span>
-                    {video.category && <span>{video.category.name}</span>}
+                    {video.categories?.length > 0 && (
+                      <span>{video.categories.map((category) => category.name).join(", ")}</span>
+                    )}
                   </div>
                 </div>
               </CardContent>

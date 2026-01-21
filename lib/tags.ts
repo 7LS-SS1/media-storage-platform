@@ -15,15 +15,17 @@ export const normalizeTags = (tags?: string[] | null) => {
 
 export const mergeTags = (
   tags?: string[] | null,
-  category?: { name?: string | null } | null,
+  category?: { name?: string | null } | Array<{ name?: string | null }> | null,
 ) => {
   const combined = normalizeTags(tags)
-  const categoryName = category?.name?.trim()
-  if (categoryName) {
+  const categories = Array.isArray(category) ? category : category ? [category] : []
+  categories.forEach((item) => {
+    const categoryName = item?.name?.trim()
+    if (!categoryName) return
     const key = categoryName.toLowerCase()
     if (!combined.some((tag) => tag.toLowerCase() === key)) {
       combined.push(categoryName)
     }
-  }
+  })
   return combined
 }

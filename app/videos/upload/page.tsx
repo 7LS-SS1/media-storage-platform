@@ -17,6 +17,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { ActorSelect } from "@/components/actor-select"
 import { STANDARD_TAGS } from "@/lib/standard-tags"
+import { TAG_LIMIT } from "@/lib/tag-constraints"
 
 interface Category {
   id: string
@@ -36,7 +37,7 @@ export default function UploadVideoPage() {
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [actors, setActors] = useState<string[]>([])
-  const [categoryId, setCategoryId] = useState<string>("none")
+  const [categoryIds, setCategoryIds] = useState<string[]>([])
   const [visibility, setVisibility] = useState<Visibility>("PUBLIC")
   const [allowedDomainIds, setAllowedDomainIds] = useState<string[]>([])
   const [videoFile, setVideoFile] = useState<File | null>(null)
@@ -49,12 +50,14 @@ export default function UploadVideoPage() {
   const [enableNewCategory, setEnableNewCategory] = useState(false)
   const [tagInput, setTagInput] = useState("")
   const [tags, setTags] = useState<string[]>([])
+  const [tagError, setTagError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [uploadStatus, setUploadStatus] = useState("")
   const [uploadProgress, setUploadProgress] = useState(0)
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   const normalizedTags = useMemo(() => new Set(tags.map((tag) => tag.toLowerCase())), [tags])
+  const tagLimitMessage = `เพิ่มแท็กได้สูงสุด ${TAG_LIMIT} รายการ`
 
   const slugify = (value: string) =>
     value
@@ -64,24 +67,39 @@ export default function UploadVideoPage() {
       .replace(/-+/g, "-")
       .replace(/^-+|-+$/g, "")
 
+  useEffect(() => {
+    if (tagError && tags.length < TAG_LIMIT) {
+      setTagError(null)
+    }
+  }, [tagError, tags.length])
+
   const addTags = (value: string) => {
     const nextTags = value
       .split(",")
       .map((tag) => tag.trim())
       .filter(Boolean)
     if (nextTags.length === 0) return
+    let hitLimit = false
     setTags((current) => {
       const seen = new Set(current.map((tag) => tag.toLowerCase()))
       const merged = [...current]
-      nextTags.forEach((tag) => {
+      for (const tag of nextTags) {
         const key = tag.toLowerCase()
-        if (!seen.has(key)) {
-          seen.add(key)
-          merged.push(tag)
+        if (seen.has(key)) continue
+        if (merged.length >= TAG_LIMIT) {
+          hitLimit = true
+          break
         }
-      })
+        seen.add(key)
+        merged.push(tag)
+      }
       return merged
     })
+    if (hitLimit) {
+      setTagError(tagLimitMessage)
+    } else {
+      setTagError(null)
+    }
   }
 
   const handleAddTag = () => {
@@ -110,14 +128,48 @@ export default function UploadVideoPage() {
   }
 
   const toggleStandardTag = (tag: string) => {
+    let hitLimit = false
     setTags((current) => {
       const key = tag.toLowerCase()
       const exists = current.some((value) => value.toLowerCase() === key)
       if (exists) {
         return current.filter((value) => value.toLowerCase() !== key)
       }
+      if (current.length >= TAG_LIMIT) {
+        hitLimit = true
+        return current
+      }
       return [...current, tag]
     })
+    if (hitLimit) {
+      setTagError(tagLimitMessage)
+    } else {
+      setTagError(null)
+    }
+  }
+
+  const addAllStandardTags = () => {
+    let hitLimit = false
+    setTags((current) => {
+      const seen = new Set(current.map((value) => value.toLowerCase()))
+      const merged = [...current]
+      for (const tag of STANDARD_TAGS) {
+        const key = tag.toLowerCase()
+        if (seen.has(key)) continue
+        if (merged.length >= TAG_LIMIT) {
+          hitLimit = true
+          break
+        }
+        seen.add(key)
+        merged.push(tag)
+      }
+      return merged
+    })
+    if (hitLimit) {
+      setTagError(tagLimitMessage)
+    } else {
+      setTagError(null)
+    }
   }
 
   const handleCreateCategory = async () => {
@@ -151,7 +203,9 @@ export default function UploadVideoPage() {
         next.sort((a, b) => a.name.localeCompare(b.name))
         return next
       })
-      setCategoryId(data.category.id)
+      setCategoryIds((current) =>
+        current.includes(data.category.id) ? current : [...current, data.category.id],
+      )
       setNewCategoryName("")
       toast.success("เพิ่มหมวดหมู่สำเร็จ")
     } catch (error) {
@@ -213,6 +267,14 @@ export default function UploadVideoPage() {
     )
   }
 
+  const toggleCategory = (categoryId: string) => {
+    setCategoryIds((current) =>
+      current.includes(categoryId)
+        ? current.filter((id) => id !== categoryId)
+        : [...current, categoryId],
+    )
+  }
+
   const uploadFile = async (
     file: File,
     type: "video" | "thumbnail",
@@ -269,6 +331,10 @@ export default function UploadVideoPage() {
     if (!videoFile) {
       nextErrors.videoFile = "Video file is required"
     }
+    if (tags.length > TAG_LIMIT) {
+      nextErrors.tags = tagLimitMessage
+      setTagError(tagLimitMessage)
+    }
     if (visibility === "DOMAIN_RESTRICTED" && allowedDomainIds.length === 0) {
       nextErrors.allowedDomainIds = "Select at least one allowed domain"
     }
@@ -303,7 +369,7 @@ export default function UploadVideoPage() {
           description: description.trim() || undefined,
           tags,
           actors,
-          categoryId: categoryId === "none" ? undefined : categoryId,
+          categoryIds: categoryIds.length > 0 ? categoryIds : undefined,
           visibility,
           allowedDomainIds: visibility === "DOMAIN_RESTRICTED" ? allowedDomainIds : undefined,
           videoUrl: videoUpload.url,
@@ -373,19 +439,37 @@ export default function UploadVideoPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label>หมวดหมู่</Label>
-                    <Select value={categoryId} onValueChange={setCategoryId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="เลือกหมวดหมู่" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">No category</SelectItem>
+                    {categories.length === 0 ? (
+                      <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                        ยังไม่มีหมวดหมู่
+                      </div>
+                    ) : (
+                      <div className="grid gap-2 md:grid-cols-2">
                         {categories.map((category) => (
-                          <SelectItem key={category.id} value={category.id}>
-                            {category.name}
-                          </SelectItem>
+                          <label
+                            key={category.id}
+                            className="flex items-center gap-2 rounded-md border p-2 text-sm"
+                          >
+                            <Checkbox
+                              checked={categoryIds.includes(category.id)}
+                              onCheckedChange={() => toggleCategory(category.id)}
+                            />
+                            <span>{category.name}</span>
+                          </label>
                         ))}
-                      </SelectContent>
-                    </Select>
+                      </div>
+                    )}
+                    {categoryIds.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {categories
+                          .filter((category) => categoryIds.includes(category.id))
+                          .map((category) => (
+                            <Badge key={category.id} variant="secondary">
+                              {category.name}
+                            </Badge>
+                          ))}
+                      </div>
+                    )}
                     <div className="flex items-center justify-between rounded-md border border-dashed px-3 py-2">
                       <Label htmlFor="new-category-switch">เพิ่มหมวดหมู่ใหม่</Label>
                       <Switch
@@ -447,7 +531,12 @@ export default function UploadVideoPage() {
                       onKeyDown={handleTagKeyDown}
                       className="min-w-[220px] flex-1"
                     />
-                    <Button type="button" variant="outline" onClick={handleAddTag} disabled={!tagInput.trim()}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleAddTag}
+                      disabled={!tagInput.trim() || tags.length >= TAG_LIMIT}
+                    >
                       เพิ่มแท็ก
                     </Button>
                   </div>
@@ -468,11 +557,26 @@ export default function UploadVideoPage() {
                       ))}
                     </div>
                   )}
-                  <p className="text-xs text-muted-foreground">แยกแท็กด้วยคอมม่า และกด Enter เพื่อเพิ่ม</p>
+                  {tagError && <p className="text-sm text-destructive">{tagError}</p>}
+                  <p className="text-xs text-muted-foreground">
+                    แยกแท็กด้วยคอมม่า และกด Enter เพื่อเพิ่ม ({tags.length}/{TAG_LIMIT})
+                  </p>
                 </div>
 
                 <div className="space-y-2">
                   <Label>แท็กมาตรฐาน</Label>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">คลิกเพื่อเพิ่ม/ลบแท็กจากรายการมาตรฐาน</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={addAllStandardTags}
+                      disabled={tags.length >= TAG_LIMIT}
+                    >
+                      เพิ่มแท๊กทั้งหมด
+                    </Button>
+                  </div>
                   <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto rounded-md border p-2">
                     {STANDARD_TAGS.map((tag) => {
                       const selected = normalizedTags.has(tag.toLowerCase())
@@ -492,7 +596,6 @@ export default function UploadVideoPage() {
                       )
                     })}
                   </div>
-                  <p className="text-xs text-muted-foreground">คลิกเพื่อเพิ่ม/ลบแท็กจากรายการมาตรฐาน</p>
                 </div>
 
                 <div className="space-y-2">

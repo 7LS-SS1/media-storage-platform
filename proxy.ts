@@ -3,9 +3,9 @@ import { getUserFromRequest } from "@/lib/auth"
 
 // Define protected routes and their required roles
 const protectedRoutes: Record<string, string[]> = {
-  "/api/videos": ["ADMIN", "EDITOR", "VIEWER"],
-  "/api/categories": ["ADMIN"],
-  "/api/domains": ["ADMIN"],
+  "/api/videos": ["SYSTEM", "ADMIN", "STAFF", "EDITOR", "VIEWER"],
+  "/api/categories": ["SYSTEM", "ADMIN"],
+  "/api/domains": ["SYSTEM", "ADMIN"],
 }
 
 // Routes that require authentication but allow all roles
@@ -49,7 +49,7 @@ export async function proxy(request: NextRequest) {
       if (pathname.startsWith(route)) {
         // For POST, PUT, DELETE on videos - require ADMIN or EDITOR
         if (route === "/api/videos" && ["POST", "PUT", "DELETE"].includes(request.method)) {
-          if (!["ADMIN", "EDITOR"].includes(user.role)) {
+          if (!["SYSTEM", "ADMIN", "STAFF", "EDITOR"].includes(user.role)) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 })
           }
         }
@@ -62,12 +62,12 @@ export async function proxy(request: NextRequest) {
   }
 
   // Check admin-only page routes
-  if (isAdminOnlyRoute && user.role !== "ADMIN") {
+  if (isAdminOnlyRoute && !["SYSTEM", "ADMIN"].includes(user.role)) {
     return NextResponse.redirect(new URL("/", request.url))
   }
 
   // Check editor routes
-  if (isEditorRoute && !["ADMIN", "EDITOR"].includes(user.role)) {
+  if (isEditorRoute && !["SYSTEM", "ADMIN", "STAFF", "EDITOR"].includes(user.role)) {
     return NextResponse.redirect(new URL("/", request.url))
   }
 

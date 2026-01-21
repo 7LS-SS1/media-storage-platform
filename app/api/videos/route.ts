@@ -1,11 +1,15 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { canManageVideos, canViewAllVideos } from "@/lib/roles"
 import { getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib/r2"
-import { normalizeActors } from "@/lib/actors"
+import { normalizeActors, toActorNames } from "@/lib/actors"
 import { mergeTags, normalizeTags } from "@/lib/tags"
-import { createVideoSchema, videoQuerySchema } from "@/lib/validation"
+import { createVideoSchema, normalizeIdList, videoQuerySchema } from "@/lib/validation"
 import { enqueueVideoTranscode } from "@/lib/video-transcode"
+
+const mapCategories = (categories?: Array<{ id: string; name: string }> | null) =>
+  (categories ?? []).map((category) => ({ id: category.id, name: category.name }))
 
 const mapPluginVideo = (video: {
   id: string
@@ -17,7 +21,8 @@ const mapPluginVideo = (video: {
   createdAt: Date
   updatedAt: Date
   tags: string[]
-  category?: { name: string } | null
+  categories?: Array<{ id: string; name: string }> | null
+  actors?: Array<{ name: string }> | string[] | null
 }) => ({
   id: video.id,
   title: video.title,
@@ -26,7 +31,9 @@ const mapPluginVideo = (video: {
   playback_url: toPublicPlaybackUrl(video.videoUrl) ?? normalizeR2Url(video.videoUrl),
   thumbnail_url: normalizeR2Url(video.thumbnailUrl),
   duration: video.duration,
-  tags: mergeTags(video.tags, video.category),
+  tags: mergeTags(video.tags, video.categories ?? []),
+  categories: mapCategories(video.categories),
+  actors: toActorNames(video.actors),
   created_at: video.createdAt,
   updated_at: video.updatedAt,
 })
@@ -39,7 +46,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    if (!["ADMIN", "EDITOR"].includes(user.role)) {
+    if (!canManageVideos(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -49,20 +56,59 @@ export async function POST(request: NextRequest) {
     // Create video with relations
     const tags = normalizeTags(validatedData.tags)
     const actors = normalizeActors(validatedData.actors)
+    const categoryIds = normalizeIdList(
+      validatedData.categoryIds ?? (validatedData.categoryId ? [validatedData.categoryId] : []),
+    )
+    const allowedDomainIds = normalizeIdList(validatedData.allowedDomainIds)
+
+    if (categoryIds.length > 0) {
+      const categories = await prisma.category.findMany({
+        where: { id: { in: categoryIds } },
+        select: { id: true },
+      })
+      const foundIds = new Set(categories.map((category) => category.id))
+      const missingCategoryIds = categoryIds.filter((id) => !foundIds.has(id))
+      if (missingCategoryIds.length > 0) {
+        return NextResponse.json(
+          { error: "Invalid categoryIds", missingCategoryIds },
+          { status: 400 },
+        )
+      }
+    }
+
+    if (allowedDomainIds.length > 0) {
+      const domains = await prisma.allowedDomain.findMany({
+        where: { id: { in: allowedDomainIds } },
+        select: { id: true },
+      })
+      const foundIds = new Set(domains.map((domain) => domain.id))
+      const missingDomainIds = allowedDomainIds.filter((id) => !foundIds.has(id))
+      if (missingDomainIds.length > 0) {
+        return NextResponse.json(
+          { error: "Invalid allowedDomainIds", missingDomainIds },
+          { status: 400 },
+        )
+      }
+    }
     const video = await prisma.video.create({
       data: {
         title: validatedData.title,
         description: validatedData.description,
         tags,
-        videoUrl: body.videoUrl, // From upload endpoint
-        thumbnailUrl: body.thumbnailUrl,
-        duration: body.duration,
-        fileSize: body.fileSize,
-        mimeType: body.mimeType,
+        videoUrl: validatedData.videoUrl,
+        thumbnailUrl: validatedData.thumbnailUrl ?? undefined,
+        duration: validatedData.duration,
+        fileSize: validatedData.fileSize,
+        mimeType: validatedData.mimeType,
         visibility: validatedData.visibility,
         status: "READY",
-        categoryId: validatedData.categoryId,
         createdById: user.userId,
+        categories:
+          categoryIds.length > 0
+            ? {
+                connect: categoryIds.map((id) => ({ id })),
+              }
+            : undefined,
         actors:
           actors.length > 0
             ? {
@@ -74,7 +120,12 @@ export async function POST(request: NextRequest) {
             : undefined,
       },
       include: {
-        category: true,
+        categories: true,
+        actors: {
+          select: {
+            name: true,
+          },
+        },
         createdBy: {
           select: {
             id: true,
@@ -86,9 +137,9 @@ export async function POST(request: NextRequest) {
     })
 
     // Add allowed domains if visibility is DOMAIN_RESTRICTED
-    if (validatedData.visibility === "DOMAIN_RESTRICTED" && validatedData.allowedDomainIds) {
+    if (validatedData.visibility === "DOMAIN_RESTRICTED" && allowedDomainIds.length > 0) {
       await Promise.all(
-        validatedData.allowedDomainIds.map((domainId) =>
+        allowedDomainIds.map((domainId) =>
           prisma.videoAllowedDomain.create({
             data: {
               videoId: video.id,
@@ -101,10 +152,15 @@ export async function POST(request: NextRequest) {
 
     enqueueVideoTranscode(video.id, video.videoUrl, video.mimeType)
 
+    const responseVideo = {
+      ...video,
+      actors: toActorNames(video.actors),
+    }
+
     return NextResponse.json(
       {
         message: "Video created successfully",
-        video,
+        video: responseVideo,
       },
       { status: 201 },
     )
@@ -175,7 +231,7 @@ export async function GET(request: NextRequest) {
 
     // Filter by category
     if (validatedQuery.categoryId) {
-      where.categoryId = validatedQuery.categoryId
+      where.categories = { some: { id: validatedQuery.categoryId } }
     }
 
     // Filter by visibility
@@ -184,7 +240,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Non-admin users can only see public videos and their own
-    if (user.role !== "ADMIN") {
+    if (!canViewAllVideos(user.role)) {
       where.OR = [{ visibility: "PUBLIC" }, { createdById: user.userId }]
     }
 
@@ -209,6 +265,25 @@ export async function GET(request: NextRequest) {
     const skip = (validatedQuery.page - 1) * limit
     const take = limit
 
+    const include: Record<string, unknown> = {
+      categories: true,
+      createdBy: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+        },
+      },
+    }
+
+    if (isPluginRequest) {
+      include.actors = {
+        select: {
+          name: true,
+        },
+      }
+    }
+
     // Execute query
     const [videos, total] = await Promise.all([
       prisma.video.findMany({
@@ -216,16 +291,7 @@ export async function GET(request: NextRequest) {
         orderBy,
         skip,
         take,
-        include: {
-          category: true,
-          createdBy: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
-          },
-        },
+        include,
       }),
       prisma.video.count({ where }),
     ])

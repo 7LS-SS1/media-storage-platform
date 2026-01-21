@@ -3,6 +3,7 @@ import { randomBytes } from "crypto"
 import { z } from "zod"
 import { getUserFromRequest, hashApiToken } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { canManageTokens } from "@/lib/roles"
 
 const DEFAULT_EXPIRY_DAYS = 30
 const MAX_EXPIRY_DAYS = 365
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    if (user.role !== "ADMIN") {
+    if (!canManageTokens(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    if (user.role !== "ADMIN") {
+    if (!canManageTokens(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 

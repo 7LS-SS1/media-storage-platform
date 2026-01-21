@@ -12,3 +12,11 @@ export const normalizeActors = (actors?: string[] | null) => {
   }
   return normalized
 }
+
+export const toActorNames = (actors?: Array<{ name: string }> | string[] | null) => {
+  if (!actors) return []
+  return actors
+    .map((actor) => (typeof actor === "string" ? actor : actor.name))
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0)
+}

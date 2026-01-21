@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import path from "path"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { isSystem } from "@/lib/roles"
 import { extractR2Key, getPublicR2Url, listR2VideoObjects } from "@/lib/r2"
 import { enqueueVideoTranscode } from "@/lib/video-transcode"
 
@@ -42,7 +43,7 @@ const handleSync = async (
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    if (user.role !== "ADMIN") {
+    if (!isSystem(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -126,7 +127,6 @@ const handleSync = async (
           mimeType: "video/mp4",
           visibility: "PUBLIC",
           status: "READY",
-          categoryId: null,
           createdById: user.userId,
         })),
       })
@@ -146,7 +146,6 @@ const handleSync = async (
               mimeType: "video/mp2t",
               visibility: "PUBLIC",
               status: "READY",
-              categoryId: null,
               createdById: user.userId,
             },
           })

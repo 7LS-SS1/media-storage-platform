@@ -16,7 +16,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
-import { Globe, KeyRound, Menu, UploadCloud, Video } from "lucide-react"
+import { canManageDomains, canManageTokens, canManageUsers, canManageVideos } from "@/lib/roles"
+import { Globe, KeyRound, Menu, UploadCloud, UserRound, Video } from "lucide-react"
 
 type NavUser = {
   id: string
@@ -30,7 +31,12 @@ export function Navigation() {
   const router = useRouter()
   const [user, setUser] = useState<NavUser | null>(null)
   const [loading, setLoading] = useState(true)
+  const [mounted, setMounted] = useState(false)
   const isEmbed = pathname.startsWith("/embed")
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   useEffect(() => {
     if (isEmbed) {
@@ -79,13 +85,16 @@ export function Navigation() {
 
   const navLinks = [
     { href: "/videos", label: "Videos" },
-    ...(user ? [{ href: "/videos/upload", label: "Upload" }] : []),
-    ...(user?.role === "ADMIN"
+    ...(user && canManageVideos(user.role) ? [{ href: "/videos/upload", label: "Upload" }] : []),
+    ...(user && canManageUsers(user.role)
+      ? [{ href: "/admin/users", label: "Users" }]
+      : []),
+    ...(user && canManageDomains(user.role)
       ? [
           { href: "/admin/domains", label: "Domains" },
-          { href: "/admin/tokens", label: "API Tokens" },
         ]
       : []),
+    ...(user && canManageTokens(user.role) ? [{ href: "/admin/tokens", label: "API Tokens" }] : []),
   ]
 
   const handleLogout = async () => {
@@ -140,30 +149,36 @@ export function Navigation() {
           </div>
 
           <div className="ml-auto flex items-center gap-3">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="md:hidden">
-                  <Menu className="h-5 w-5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {navLinks.map((link) => (
-                  <DropdownMenuItem key={link.href} asChild>
-                    <Link href={link.href}>{link.label}</Link>
-                  </DropdownMenuItem>
-                ))}
-                {!user && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                      <Link href="/login">Login</Link>
+            {mounted ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="md:hidden">
+                    <Menu className="h-5 w-5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {navLinks.map((link) => (
+                    <DropdownMenuItem key={link.href} asChild>
+                      <Link href={link.href}>{link.label}</Link>
                     </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  ))}
+                  {!user && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem asChild>
+                        <Link href="/login">Login</Link>
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open menu" disabled>
+                <Menu className="h-5 w-5" />
+              </Button>
+            )}
 
-            {user && (
+            {user && canManageVideos(user.role) && (
               <Button asChild size="sm" className="hidden sm:inline-flex">
                 <Link href="/videos/upload">
                   <UploadCloud className="mr-2 h-4 w-4" />
@@ -175,61 +190,83 @@ export function Navigation() {
             {loading ? (
               <div className="h-9 w-24 rounded-full bg-muted/70 animate-pulse" />
             ) : user ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="flex items-center gap-2 rounded-full px-2">
-                    <Avatar className="h-8 w-8">
-                      <AvatarFallback>{initials || "U"}</AvatarFallback>
-                    </Avatar>
-                    <div className="hidden flex-col items-start sm:flex">
-                      <span className="text-sm font-medium leading-none">{user.name || "User"}</span>
-                      <span className="text-xs text-muted-foreground">{user.email}</span>
-                    </div>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="min-w-[220px]">
-                  <DropdownMenuLabel className="space-y-2">
-                    <div className="text-sm font-medium">{user.name || user.email}</div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary">{user.role}</Badge>
-                      <span className="text-xs text-muted-foreground">Signed in</span>
-                    </div>
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild>
-                    <Link href="/videos">
-                      <Video className="h-4 w-4" />
-                      Videos
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link href="/videos/upload">
-                      <UploadCloud className="h-4 w-4" />
-                      Upload
-                    </Link>
-                  </DropdownMenuItem>
-                  {user.role === "ADMIN" && (
-                    <>
+              mounted ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" className="flex items-center gap-2 rounded-full px-2">
+                      <Avatar className="h-8 w-8">
+                        <AvatarFallback>{initials || "U"}</AvatarFallback>
+                      </Avatar>
+                      <div className="hidden flex-col items-start sm:flex">
+                        <span className="text-sm font-medium leading-none">{user.name || "User"}</span>
+                        <span className="text-xs text-muted-foreground">{user.email}</span>
+                      </div>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-[220px]">
+                    <DropdownMenuLabel className="space-y-2">
+                      <div className="text-sm font-medium">{user.name || user.email}</div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary">{user.role}</Badge>
+                        <span className="text-xs text-muted-foreground">Signed in</span>
+                      </div>
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link href="/videos">
+                        <Video className="h-4 w-4" />
+                        Videos
+                      </Link>
+                    </DropdownMenuItem>
+                    {canManageVideos(user.role) && (
+                      <DropdownMenuItem asChild>
+                        <Link href="/videos/upload">
+                          <UploadCloud className="h-4 w-4" />
+                          Upload
+                        </Link>
+                      </DropdownMenuItem>
+                    )}
+                    {canManageUsers(user.role) && (
+                      <DropdownMenuItem asChild>
+                        <Link href="/admin/users">
+                          <UserRound className="h-4 w-4" />
+                          Users
+                        </Link>
+                      </DropdownMenuItem>
+                    )}
+                    {canManageDomains(user.role) && (
                       <DropdownMenuItem asChild>
                         <Link href="/admin/domains">
                           <Globe className="h-4 w-4" />
                           Domains
                         </Link>
                       </DropdownMenuItem>
+                    )}
+                    {canManageTokens(user.role) && (
                       <DropdownMenuItem asChild>
                         <Link href="/admin/tokens">
                           <KeyRound className="h-4 w-4" />
                           API Tokens
                         </Link>
                       </DropdownMenuItem>
-                    </>
-                  )}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleLogout} variant="destructive">
-                    Log out
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleLogout} variant="destructive">
+                      Log out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <Button variant="ghost" className="flex items-center gap-2 rounded-full px-2" disabled>
+                  <Avatar className="h-8 w-8">
+                    <AvatarFallback>{initials || "U"}</AvatarFallback>
+                  </Avatar>
+                  <div className="hidden flex-col items-start sm:flex">
+                    <span className="text-sm font-medium leading-none">{user.name || "User"}</span>
+                    <span className="text-xs text-muted-foreground">{user.email}</span>
+                  </div>
+                </Button>
+              )
             ) : (
               <div className="flex items-center gap-2">
                 <Button variant="ghost" asChild>

@@ -1,7 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { canViewAllVideos } from "@/lib/roles"
 import { getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib/r2"
+import { toActorNames } from "@/lib/actors"
 import { mergeTags } from "@/lib/tags"
 
 const DEFAULT_PAGE = 1
@@ -45,7 +47,8 @@ const mapVideo = async (video: {
   createdAt: Date
   updatedAt: Date
   tags: string[]
-  category?: { name: string } | null
+  categories?: Array<{ id: string; name: string }> | null
+  actors?: Array<{ name: string }> | string[] | null
 }) => {
   const signedUrl = await getSignedPlaybackUrl(video.videoUrl)
   const publicUrl = toPublicPlaybackUrl(video.videoUrl) ?? normalizeR2Url(video.videoUrl)
@@ -57,7 +60,9 @@ const mapVideo = async (video: {
     playback_url: publicUrl ?? signedUrl ?? normalizeR2Url(video.videoUrl),
     thumbnail_url: normalizeR2Url(video.thumbnailUrl),
     duration: video.duration,
-    tags: mergeTags(video.tags, video.category),
+    tags: mergeTags(video.tags, video.categories ?? []),
+    categories: (video.categories ?? []).map((category) => ({ id: category.id, name: category.name })),
+    actors: toActorNames(video.actors),
     created_at: video.createdAt,
     updated_at: video.updatedAt,
   }
@@ -89,7 +94,7 @@ export async function GET(request: NextRequest) {
       where.updatedAt = { gt: since }
     }
 
-    if (user.role !== "ADMIN") {
+    if (!canViewAllVideos(user.role)) {
       where.OR = [{ visibility: "PUBLIC" }, { createdById: user.userId }]
     }
 
@@ -103,7 +108,12 @@ export async function GET(request: NextRequest) {
         skip,
         take,
         include: {
-          category: true,
+          categories: true,
+          actors: {
+            select: {
+              name: true,
+            },
+          },
           createdBy: {
             select: {
               id: true,

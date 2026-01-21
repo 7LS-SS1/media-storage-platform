@@ -118,7 +118,7 @@ export function AdminTokenManager() {
 
       if (response.status === 403) {
         setForbidden(true)
-        throw new Error("Only admins can generate API tokens.")
+        throw new Error("Only system can generate API tokens.")
       }
 
       if (!response.ok) {
@@ -206,7 +206,7 @@ export function AdminTokenManager() {
 
       if (response.status === 403) {
         setForbidden(true)
-        throw new Error("Only admins can update API tokens.")
+        throw new Error("Only system can update API tokens.")
       }
 
       if (!response.ok) {

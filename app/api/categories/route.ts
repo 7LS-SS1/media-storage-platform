@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { z } from "zod"
+import { isSystem } from "@/lib/roles"
 
 const createCategorySchema = z.object({
   name: z.string().min(1).max(100),
@@ -13,7 +14,7 @@ const createCategorySchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     const user = await getUserFromRequest(request)
-    if (!user || user.role !== "ADMIN") {
+    if (!user || (user.role !== "ADMIN" && !isSystem(user.role))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 

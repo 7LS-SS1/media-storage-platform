@@ -101,8 +101,13 @@ Create new video entry.
   "description": "Video description",
   "videoUrl": "https://r2.../video.mp4",
   "thumbnailUrl": "https://r2.../thumb.jpg",
-  "categoryId": "cat_1",
-  "visibility": "PUBLIC"
+  "categoryIds": ["cat_1", "cat_2"],
+  "tags": ["trailer", "action"],
+  "actors": ["Actor A", "Actor B"],
+  "visibility": "PUBLIC",
+  "allowedDomainIds": ["domain_1"],
+  "fileSize": 123456789,
+  "mimeType": "video/mp4"
 }
 ```
 

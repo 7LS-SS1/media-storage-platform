@@ -1,10 +1,14 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { canManageVideos, canViewAllVideos } from "@/lib/roles"
 import { getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib/r2"
-import { normalizeActors } from "@/lib/actors"
+import { normalizeActors, toActorNames } from "@/lib/actors"
 import { mergeTags, normalizeTags } from "@/lib/tags"
-import { updateVideoSchema } from "@/lib/validation"
+import { normalizeIdList, updateVideoSchema } from "@/lib/validation"
+
+const mapCategories = (categories?: Array<{ id: string; name: string }> | null) =>
+  (categories ?? []).map((category) => ({ id: category.id, name: category.name }))
 
 const mapPluginVideo = (video: {
   id: string
@@ -16,7 +20,8 @@ const mapPluginVideo = (video: {
   createdAt: Date
   updatedAt: Date
   tags: string[]
-  category?: { name: string } | null
+  categories?: Array<{ id: string; name: string }> | null
+  actors?: Array<{ name: string }> | string[] | null
 }) => ({
   id: video.id,
   title: video.title,
@@ -25,7 +30,9 @@ const mapPluginVideo = (video: {
   playback_url: toPublicPlaybackUrl(video.videoUrl) ?? normalizeR2Url(video.videoUrl),
   thumbnail_url: normalizeR2Url(video.thumbnailUrl),
   duration: video.duration,
-  tags: mergeTags(video.tags, video.category),
+  tags: mergeTags(video.tags, video.categories ?? []),
+  categories: mapCategories(video.categories),
+  actors: toActorNames(video.actors),
   created_at: video.createdAt,
   updated_at: video.updatedAt,
 })
@@ -43,7 +50,12 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     const video = await prisma.video.findUnique({
       where: { id: params.id },
       include: {
-        category: true,
+        categories: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
         createdBy: {
           select: {
             id: true,
@@ -70,7 +82,7 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     }
 
     // Check access permissions
-    if (video.visibility === "PRIVATE" && video.createdById !== user.userId && user.role !== "ADMIN") {
+    if (video.visibility === "PRIVATE" && video.createdById !== user.userId && !canViewAllVideos(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -116,7 +128,7 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    if (!["ADMIN", "EDITOR"].includes(user.role)) {
+    if (!canManageVideos(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -129,25 +141,75 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
     }
 
     // Only admin or owner can update
-    if (video.createdById !== user.userId && user.role !== "ADMIN") {
+    if (video.createdById !== user.userId && !canViewAllVideos(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
     const body = await request.json()
     const validatedData = updateVideoSchema.parse(body)
-    const actors =
-      validatedData.actors === undefined ? null : normalizeActors(validatedData.actors)
+    const actors = validatedData.actors === undefined ? null : normalizeActors(validatedData.actors)
 
     // Update video
+    const nextCategoryIds =
+      validatedData.categoryIds ??
+      (validatedData.categoryId === null
+        ? []
+        : validatedData.categoryId
+          ? [validatedData.categoryId]
+          : null)
+    const normalizedCategoryIds = nextCategoryIds === null ? null : normalizeIdList(nextCategoryIds)
+    const allowedDomainIds =
+      validatedData.allowedDomainIds === undefined ? undefined : normalizeIdList(validatedData.allowedDomainIds)
+
+    if (normalizedCategoryIds && normalizedCategoryIds.length > 0) {
+      const categories = await prisma.category.findMany({
+        where: { id: { in: normalizedCategoryIds } },
+        select: { id: true },
+      })
+      const foundIds = new Set(categories.map((category) => category.id))
+      const missingCategoryIds = normalizedCategoryIds.filter((id) => !foundIds.has(id))
+      if (missingCategoryIds.length > 0) {
+        return NextResponse.json(
+          { error: "Invalid categoryIds", missingCategoryIds },
+          { status: 400 },
+        )
+      }
+    }
+
+    if (allowedDomainIds && allowedDomainIds.length > 0) {
+      const domains = await prisma.allowedDomain.findMany({
+        where: { id: { in: allowedDomainIds } },
+        select: { id: true },
+      })
+      const foundIds = new Set(domains.map((domain) => domain.id))
+      const missingDomainIds = allowedDomainIds.filter((id) => !foundIds.has(id))
+      if (missingDomainIds.length > 0) {
+        return NextResponse.json(
+          { error: "Invalid allowedDomainIds", missingDomainIds },
+          { status: 400 },
+        )
+      }
+    }
+
     const updatedVideo = await prisma.video.update({
       where: { id: params.id },
       data: {
         title: validatedData.title,
         description: validatedData.description,
         tags: validatedData.tags === undefined ? undefined : normalizeTags(validatedData.tags),
-        categoryId: validatedData.categoryId,
         visibility: validatedData.visibility,
         status: validatedData.status,
+        categories:
+          normalizedCategoryIds === null
+            ? undefined
+            : {
+                set: [],
+                ...(normalizedCategoryIds.length > 0
+                  ? {
+                      connect: normalizedCategoryIds.map((id) => ({ id })),
+                    }
+                  : {}),
+              },
         actors:
           actors === null
             ? undefined
@@ -164,7 +226,17 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
               },
       },
       include: {
-        category: true,
+        categories: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        actors: {
+          select: {
+            name: true,
+          },
+        },
         createdBy: {
           select: {
             id: true,
@@ -176,7 +248,7 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
     })
 
     // Update allowed domains if needed
-    if (validatedData.visibility === "DOMAIN_RESTRICTED" && validatedData.allowedDomainIds) {
+    if (validatedData.visibility === "DOMAIN_RESTRICTED" && allowedDomainIds && allowedDomainIds.length > 0) {
       // Remove existing relations
       await prisma.videoAllowedDomain.deleteMany({
         where: { videoId: params.id },
@@ -184,7 +256,7 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
 
       // Add new relations
       await Promise.all(
-        validatedData.allowedDomainIds.map((domainId) =>
+        allowedDomainIds.map((domainId) =>
           prisma.videoAllowedDomain.create({
             data: {
               videoId: params.id,
@@ -197,7 +269,10 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
 
     return NextResponse.json({
       message: "Video updated successfully",
-      video: updatedVideo,
+      video: {
+        ...updatedVideo,
+        actors: toActorNames(updatedVideo.actors),
+      },
     })
   } catch (error) {
     console.error("Update video error:", error)
@@ -217,8 +292,8 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    if (user.role !== "ADMIN") {
-      return NextResponse.json({ error: "Forbidden - Only admin can delete videos" }, { status: 403 })
+    if (!canManageVideos(user.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
     const video = await prisma.video.findUnique({
@@ -227,6 +302,10 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
     if (!video) {
       return NextResponse.json({ error: "Video not found" }, { status: 404 })
+    }
+
+    if (video.createdById !== user.userId && !canViewAllVideos(user.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
     // Delete video file from R2

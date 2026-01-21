@@ -32,7 +32,7 @@ interface Video {
   visibility: string
   status: string
   createdAt: string
-  category: { name: string } | null
+  categories: { id: string; name: string }[]
   createdBy: { name: string | null; email: string }
 }
 
@@ -108,7 +108,11 @@ export function VideoInfo({ videoId }: VideoInfoProps) {
           <div className="flex flex-wrap gap-2">
             <Badge>{video.visibility}</Badge>
             <Badge variant="outline">{video.status}</Badge>
-            {video.category && <Badge variant="secondary">{video.category.name}</Badge>}
+            {video.categories?.map((category) => (
+              <Badge key={category.id} variant="secondary">
+                {category.name}
+              </Badge>
+            ))}
             {video.tags?.map((tag) => (
               <Badge key={tag} variant="secondary">
                 {tag}

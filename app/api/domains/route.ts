@@ -2,12 +2,13 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { createDomainSchema } from "@/lib/validation"
+import { canManageDomains } from "@/lib/roles"
 
 // POST - Add allowed domain (Admin only)
 export async function POST(request: NextRequest) {
   try {
     const user = await getUserFromRequest(request)
-    if (!user || user.role !== "ADMIN") {
+    if (!user || !canManageDomains(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const user = await getUserFromRequest(request)
-    if (!user || user.role !== "ADMIN") {
+    if (!user || !canManageDomains(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
