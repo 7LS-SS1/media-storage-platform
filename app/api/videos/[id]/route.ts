@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { canManageVideos, canViewAllVideos } from "@/lib/roles"
-import { getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib/r2"
+import { extractR2Key, getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib/r2"
 import { normalizeActors, toActorNames } from "@/lib/actors"
 import { mergeTags, normalizeTags } from "@/lib/tags"
 import { normalizeIdList, updateVideoSchema } from "@/lib/validation"
@@ -310,14 +310,14 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
     // Delete video file from R2
     try {
-      const videoKey = video.videoUrl.split("/").pop()
+      const videoKey = extractR2Key(video.videoUrl)
       if (videoKey) {
         await deleteFromR2(videoKey)
       }
 
       // Delete thumbnail if exists
       if (video.thumbnailUrl) {
-        const thumbnailKey = video.thumbnailUrl.split("/").pop()
+        const thumbnailKey = extractR2Key(video.thumbnailUrl)
         if (thumbnailKey) {
           await deleteFromR2(thumbnailKey)
         }
