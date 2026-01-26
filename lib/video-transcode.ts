@@ -99,6 +99,7 @@ const transcodeVideoToMp4 = async (videoId: string, videoUrl: string) => {
       data: {
         videoUrl: mp4Url,
         mimeType: "video/mp4",
+        status: "READY",
       },
     })
   } finally {

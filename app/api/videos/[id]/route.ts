@@ -6,6 +6,7 @@ import { extractR2Key, getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl
 import { normalizeActors, toActorNames } from "@/lib/actors"
 import { mergeTags, normalizeTags } from "@/lib/tags"
 import { normalizeIdList, updateVideoSchema } from "@/lib/validation"
+import { markMp4VideosReady } from "@/lib/video-status"
 
 const mapCategories = (categories?: Array<{ id: string; name: string }> | null) =>
   (categories ?? []).map((category) => ({ id: category.id, name: category.name }))
@@ -84,6 +85,11 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     // Check access permissions
     if (video.visibility === "PRIVATE" && video.createdById !== user.userId && !canViewAllVideos(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
+    const statusUpdate = await markMp4VideosReady({ ids: [params.id] })
+    if (statusUpdate.count > 0) {
+      video.status = "READY"
     }
 
     // Increment view count

@@ -5,6 +5,7 @@ import { canViewAllVideos } from "@/lib/roles"
 import { getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib/r2"
 import { toActorNames } from "@/lib/actors"
 import { mergeTags } from "@/lib/tags"
+import { markMp4VideosReady } from "@/lib/video-status"
 
 const DEFAULT_PAGE = 1
 const DEFAULT_PER_PAGE = 20
@@ -75,6 +76,7 @@ export async function GET(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+    await markMp4VideosReady()
 
     const { searchParams } = new URL(request.url)
     const page = parsePositiveInt(searchParams.get("page"), DEFAULT_PAGE)

@@ -7,6 +7,7 @@ import { normalizeActors, toActorNames } from "@/lib/actors"
 import { mergeTags, normalizeTags } from "@/lib/tags"
 import { createVideoSchema, normalizeIdList, videoQuerySchema } from "@/lib/validation"
 import { enqueueVideoTranscode } from "@/lib/video-transcode"
+import { markMp4VideosReady } from "@/lib/video-status"
 
 const mapCategories = (categories?: Array<{ id: string; name: string }> | null) =>
   (categories ?? []).map((category) => ({ id: category.id, name: category.name }))
@@ -180,6 +181,7 @@ export async function GET(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+    await markMp4VideosReady()
 
     const { searchParams } = new URL(request.url)
     const query = Object.fromEntries(searchParams.entries())
