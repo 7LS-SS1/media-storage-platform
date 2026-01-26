@@ -90,6 +90,7 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     const statusUpdate = await markMp4VideosReady({ ids: [params.id] })
     if (statusUpdate.count > 0) {
       video.status = "READY"
+      video.transcodeProgress = 100
     }
 
     // Increment view count

@@ -108,6 +108,7 @@ const handleSync = async (
               videoUrl: getPublicR2Url(item.key),
               mimeType: "video/mp4",
               status: "READY",
+              transcodeProgress: 100,
               fileSize: item.size ?? undefined,
             },
           }),
@@ -127,6 +128,7 @@ const handleSync = async (
           mimeType: "video/mp4",
           visibility: "PUBLIC",
           status: "READY",
+          transcodeProgress: 100,
           createdById: user.userId,
         })),
       })
@@ -145,7 +147,8 @@ const handleSync = async (
               fileSize: item.size ?? null,
               mimeType: "video/mp2t",
               visibility: "PUBLIC",
-              status: "READY",
+              status: "PROCESSING",
+              transcodeProgress: 0,
               createdById: user.userId,
             },
           })

@@ -6,7 +6,7 @@ import { getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib
 import { normalizeActors, toActorNames } from "@/lib/actors"
 import { mergeTags, normalizeTags } from "@/lib/tags"
 import { createVideoSchema, normalizeIdList, videoQuerySchema } from "@/lib/validation"
-import { enqueueVideoTranscode } from "@/lib/video-transcode"
+import { enqueueVideoTranscode, shouldTranscodeToMp4 } from "@/lib/video-transcode"
 import { markMp4VideosReady } from "@/lib/video-status"
 
 const mapCategories = (categories?: Array<{ id: string; name: string }> | null) =>
@@ -91,6 +91,10 @@ export async function POST(request: NextRequest) {
         )
       }
     }
+    const cleanVideoUrl = validatedData.videoUrl.split("?")[0]?.toLowerCase() ?? ""
+    const isMp4 = validatedData.mimeType?.toLowerCase() === "video/mp4" || cleanVideoUrl.endsWith(".mp4")
+    const shouldTranscode = shouldTranscodeToMp4(validatedData.videoUrl, validatedData.mimeType)
+
     const video = await prisma.video.create({
       data: {
         title: validatedData.title,
@@ -102,7 +106,8 @@ export async function POST(request: NextRequest) {
         fileSize: validatedData.fileSize,
         mimeType: validatedData.mimeType,
         visibility: validatedData.visibility,
-        status: "READY",
+        status: shouldTranscode ? "PROCESSING" : "READY",
+        transcodeProgress: shouldTranscode ? 0 : isMp4 ? 100 : null,
         createdById: user.userId,
         categories:
           categoryIds.length > 0

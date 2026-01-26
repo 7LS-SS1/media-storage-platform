@@ -12,6 +12,6 @@ export const markMp4VideosReady = async (options?: { ids?: string[] }) => {
 
   return await prisma.video.updateMany({
     where,
-    data: { status: "READY" },
+    data: { status: "READY", transcodeProgress: 100 },
   })
 }

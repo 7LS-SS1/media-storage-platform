@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Progress } from "@/components/ui/progress"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,6 +32,9 @@ interface Video {
   views: number
   visibility: string
   status: string
+  videoUrl: string
+  mimeType?: string | null
+  transcodeProgress?: number | null
   createdAt: string
   categories: { id: string; name: string }[]
   createdBy: { name: string | null; email: string }
@@ -46,22 +50,38 @@ export function VideoInfo({ videoId }: VideoInfoProps) {
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
 
-  useEffect(() => {
-    async function fetchVideo() {
-      try {
-        const response = await fetch(`/api/videos/${videoId}`)
-        if (response.ok) {
-          const data = await response.json()
-          setVideo(data.video)
-        }
-      } catch (error) {
-        console.error("Failed to fetch video:", error)
-      } finally {
+  const fetchVideo = async (showLoading = false) => {
+    try {
+      if (showLoading) {
+        setLoading(true)
+      }
+      const response = await fetch(`/api/videos/${videoId}`)
+      if (response.ok) {
+        const data = await response.json()
+        setVideo(data.video)
+      }
+    } catch (error) {
+      console.error("Failed to fetch video:", error)
+    } finally {
+      if (showLoading) {
         setLoading(false)
       }
     }
-    fetchVideo()
+  }
+
+  useEffect(() => {
+    fetchVideo(true)
   }, [videoId])
+
+  useEffect(() => {
+    if (video?.status !== "PROCESSING") {
+      return undefined
+    }
+    const interval = setInterval(() => {
+      fetchVideo()
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [video?.status, videoId])
 
   const handleDelete = async () => {
     if (deleting) return
@@ -96,6 +116,20 @@ export function VideoInfo({ videoId }: VideoInfoProps) {
     return <Card>Video not found</Card>
   }
 
+  const normalizedUrl = video.videoUrl?.split("?")[0]?.toLowerCase() ?? ""
+  const mimeType = video.mimeType?.toLowerCase() ?? ""
+  const isMp4 = mimeType === "video/mp4" || normalizedUrl.endsWith(".mp4")
+  const isTs = mimeType === "video/mp2t" || normalizedUrl.endsWith(".ts")
+  let mp4Status = "MP4: Not converted"
+  if (video.status === "FAILED") {
+    mp4Status = "MP4: Failed"
+  } else if (isMp4) {
+    mp4Status = "MP4: Ready"
+  } else if (isTs || video.status === "PROCESSING") {
+    mp4Status = "MP4: Processing"
+  }
+  const progressValue = typeof video.transcodeProgress === "number" ? video.transcodeProgress : null
+
   return (
     <div className="space-y-4">
       <Card>
@@ -108,6 +142,7 @@ export function VideoInfo({ videoId }: VideoInfoProps) {
           <div className="flex flex-wrap gap-2">
             <Badge>{video.visibility}</Badge>
             <Badge variant="outline">{video.status}</Badge>
+            <Badge variant="outline">{mp4Status}</Badge>
             {video.categories?.map((category) => (
               <Badge key={category.id} variant="secondary">
                 {category.name}
@@ -124,6 +159,16 @@ export function VideoInfo({ videoId }: VideoInfoProps) {
               </Badge>
             ))}
           </div>
+
+          {video.status === "PROCESSING" && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>MP4 conversion progress</span>
+                <span>{progressValue ?? 0}%</span>
+              </div>
+              <Progress value={progressValue ?? 0} />
+            </div>
+          )}
 
           <div className="space-y-2 text-sm">
             <div className="flex items-center gap-2 text-muted-foreground">

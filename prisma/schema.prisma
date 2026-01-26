@@ -75,6 +75,7 @@ model Video {
   mimeType     String?         @map("mime_type")
   visibility   VideoVisibility @default(PUBLIC)
   status       VideoStatus     @default(PROCESSING)
+  transcodeProgress Int?       @map("transcode_progress")
   views        Int             @default(0)
   createdAt    DateTime        @default(now()) @map("created_at")
   updatedAt    DateTime        @updatedAt @map("updated_at")
