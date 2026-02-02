@@ -213,6 +213,14 @@ const transcodeVideoToMp4 = async (client, config, video) => {
   const outputPath = path.join(os.tmpdir(), `${tempBase}.mp4`)
 
   try {
+    await prisma.video.update({
+      where: { id: video.id },
+      data: {
+        status: "PROCESSING",
+        transcodeProgress: 0,
+      },
+    })
+
     await downloadToFile(signedUrl, inputPath)
     await runFfmpeg(inputPath, outputPath)
 
@@ -227,6 +235,8 @@ const transcodeVideoToMp4 = async (client, config, video) => {
       data: {
         videoUrl: mp4Url,
         mimeType: "video/mp4",
+        status: "READY",
+        transcodeProgress: 100,
       },
     })
   } finally {
@@ -293,6 +303,14 @@ const main = async () => {
       console.log(`Updated ${video.id}`)
     } catch (error) {
       console.error(`Failed ${video.id}:`, error?.message || error)
+      try {
+        await prisma.video.update({
+          where: { id: video.id },
+          data: { status: "FAILED" },
+        })
+      } catch (updateError) {
+        console.error(`Failed to mark ${video.id} as FAILED:`, updateError?.message || updateError)
+      }
     }
   }
 }

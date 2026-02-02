@@ -50,6 +50,12 @@ export function VideoInfo({ videoId }: VideoInfoProps) {
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
 
+  const normalizedUrl = video?.videoUrl?.split("?")[0]?.toLowerCase() ?? ""
+  const mimeType = video?.mimeType?.toLowerCase() ?? ""
+  const isMp4 = mimeType === "video/mp4" || normalizedUrl.endsWith(".mp4")
+  const isTs = mimeType === "video/mp2t" || normalizedUrl.endsWith(".ts")
+  const shouldPoll = Boolean(video) && (video?.status === "PROCESSING" || (isTs && video?.status !== "FAILED"))
+
   const fetchVideo = async (showLoading = false) => {
     try {
       if (showLoading) {
@@ -74,14 +80,14 @@ export function VideoInfo({ videoId }: VideoInfoProps) {
   }, [videoId])
 
   useEffect(() => {
-    if (video?.status !== "PROCESSING") {
+    if (!shouldPoll) {
       return undefined
     }
     const interval = setInterval(() => {
       fetchVideo()
     }, 5000)
     return () => clearInterval(interval)
-  }, [video?.status, videoId])
+  }, [shouldPoll, videoId])
 
   const handleDelete = async () => {
     if (deleting) return
@@ -116,10 +122,6 @@ export function VideoInfo({ videoId }: VideoInfoProps) {
     return <Card>Video not found</Card>
   }
 
-  const normalizedUrl = video.videoUrl?.split("?")[0]?.toLowerCase() ?? ""
-  const mimeType = video.mimeType?.toLowerCase() ?? ""
-  const isMp4 = mimeType === "video/mp4" || normalizedUrl.endsWith(".mp4")
-  const isTs = mimeType === "video/mp2t" || normalizedUrl.endsWith(".ts")
   let mp4Status = "MP4: Not converted"
   if (video.status === "FAILED") {
     mp4Status = "MP4: Failed"
