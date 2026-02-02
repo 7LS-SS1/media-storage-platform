@@ -57,7 +57,7 @@ export async function getUserFromRequest(request: NextRequest): Promise<JWTPaylo
       where: {
         tokenHash,
         revokedAt: null,
-        expiresAt: { gt: new Date() },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
       },
       include: {
         createdBy: {

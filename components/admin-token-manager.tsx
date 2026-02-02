@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -26,7 +27,7 @@ interface ApiTokenItem {
   name: string
   last4: string
   createdAt: string
-  expiresAt: string
+  expiresAt: string | null
   lastUsedAt: string | null
   revokedAt: string | null
 }
@@ -34,8 +35,9 @@ interface ApiTokenItem {
 export function AdminTokenManager() {
   const [tokenName, setTokenName] = useState("")
   const [expiresInDays, setExpiresInDays] = useState<string>(String(DEFAULT_EXPIRY_DAYS))
+  const [isLifetime, setIsLifetime] = useState(false)
   const [token, setToken] = useState("")
-  const [expiresAt, setExpiresAt] = useState("")
+  const [expiresAt, setExpiresAt] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadingTokens, setLoadingTokens] = useState(true)
   const [forbidden, setForbidden] = useState(false)
@@ -44,10 +46,12 @@ export function AdminTokenManager() {
   const [editingToken, setEditingToken] = useState<ApiTokenItem | null>(null)
   const [editName, setEditName] = useState("")
   const [editExpiresInDays, setEditExpiresInDays] = useState("")
+  const [editIsLifetime, setEditIsLifetime] = useState(false)
   const [editError, setEditError] = useState("")
   const [savingEdit, setSavingEdit] = useState(false)
 
   const formatDate = (value: string) => new Date(value).toLocaleString()
+  const formatExpiry = (value: string | null) => (value ? formatDate(value) : "Lifetime")
 
   const fetchTokens = async () => {
     setLoadingTokens(true)
@@ -79,7 +83,7 @@ export function AdminTokenManager() {
     setError("")
     setForbidden(false)
     setToken("")
-    setExpiresAt("")
+    setExpiresAt(null)
     setLoading(true)
 
     try {
@@ -90,9 +94,11 @@ export function AdminTokenManager() {
       }
 
       const trimmed = expiresInDays.trim()
-      let payload: { name: string; expiresInDays?: number } = { name: tokenName.trim() }
+      let payload: { name: string; expiresInDays?: number; lifetime?: boolean } = { name: tokenName.trim() }
 
-      if (trimmed) {
+      if (isLifetime) {
+        payload.lifetime = true
+      } else if (trimmed) {
         const parsed = Number(trimmed)
         if (!Number.isFinite(parsed) || parsed <= 0) {
           setError("Expires in days must be a positive number.")
@@ -126,7 +132,7 @@ export function AdminTokenManager() {
       }
 
       setToken(result.token)
-      setExpiresAt(result.apiToken?.expiresAt ?? "")
+      setExpiresAt(result.apiToken?.expiresAt ?? null)
       setTokenName("")
       toast.success("API token generated")
       fetchTokens()
@@ -152,6 +158,7 @@ export function AdminTokenManager() {
     setEditingToken(tokenItem)
     setEditName(tokenItem.name)
     setEditExpiresInDays("")
+    setEditIsLifetime(tokenItem.expiresAt === null)
     setEditError("")
   }
 
@@ -160,6 +167,7 @@ export function AdminTokenManager() {
     setEditingToken(null)
     setEditName("")
     setEditExpiresInDays("")
+    setEditIsLifetime(false)
     setEditError("")
   }
 
@@ -177,10 +185,12 @@ export function AdminTokenManager() {
         return
       }
 
-      const payload: { name: string; expiresInDays?: number } = { name: editName.trim() }
+      const payload: { name: string; expiresInDays?: number; lifetime?: boolean } = { name: editName.trim() }
       const trimmed = editExpiresInDays.trim()
 
-      if (trimmed) {
+      if (editIsLifetime) {
+        payload.lifetime = true
+      } else if (trimmed) {
         const parsed = Number(trimmed)
         if (!Number.isFinite(parsed) || parsed <= 0) {
           setEditError("Expires in days must be a positive number.")
@@ -193,6 +203,10 @@ export function AdminTokenManager() {
           return
         }
         payload.expiresInDays = Math.floor(parsed)
+      } else if (editingToken.expiresAt === null) {
+        setEditError("Please provide expiry days to disable lifetime.")
+        setSavingEdit(false)
+        return
       }
 
       const response = await fetch(`/api/admin/tokens/${editingToken.id}`, {
@@ -247,6 +261,7 @@ export function AdminTokenManager() {
               max={MAX_EXPIRY_DAYS}
               value={expiresInDays}
               onChange={(event) => setExpiresInDays(event.target.value)}
+              disabled={isLifetime}
               className="w-full sm:w-48"
             />
             <Button type="submit" disabled={loading}>
@@ -254,8 +269,18 @@ export function AdminTokenManager() {
               Generate token
             </Button>
           </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="tokenLifetime"
+              checked={isLifetime}
+              onCheckedChange={(checked) => setIsLifetime(checked === true)}
+            />
+            <Label htmlFor="tokenLifetime" className="text-sm">
+              Lifetime (ไม่หมดอายุ)
+            </Label>
+          </div>
           <p className="text-sm text-muted-foreground">
-            Tokens นี้มีอายุการใช้งานสูงสุด {MAX_EXPIRY_DAYS} วัน. เว้นว่างเพื่อใช้ค่าพื้นฐานสูงสุด {DEFAULT_EXPIRY_DAYS} วัน.
+            Tokens นี้มีอายุการใช้งานสูงสุด {MAX_EXPIRY_DAYS} วัน. เลือก Lifetime เพื่อไม่หมดอายุ หรือเว้นว่างเพื่อใช้ค่าพื้นฐาน {DEFAULT_EXPIRY_DAYS} วัน.
           </p>
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
@@ -280,9 +305,9 @@ export function AdminTokenManager() {
                   <Copy className="h-4 w-4 mr-2" />
                   Copy token
                 </Button>
-                {expiresAt && (
-                  <span className="text-sm text-muted-foreground">Expires at: {new Date(expiresAt).toLocaleString()}</span>
-                )}
+                <span className="text-sm text-muted-foreground">
+                  Expires at: {expiresAt ? new Date(expiresAt).toLocaleString() : "Lifetime"}
+                </span>
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
@@ -306,7 +331,8 @@ export function AdminTokenManager() {
           <div className="space-y-3">
             {tokens.map((tokenItem) => {
               const isExpired =
-                tokenItem.revokedAt !== null || new Date(tokenItem.expiresAt).getTime() <= Date.now()
+                tokenItem.revokedAt !== null ||
+                (tokenItem.expiresAt ? new Date(tokenItem.expiresAt).getTime() <= Date.now() : false)
 
               return (
                 <Card key={tokenItem.id}>
@@ -322,7 +348,7 @@ export function AdminTokenManager() {
                       <div className="text-xs text-muted-foreground">
                         <span>Created {formatDate(tokenItem.createdAt)}</span>
                         {" · "}
-                        <span>Expires {formatDate(tokenItem.expiresAt)}</span>
+                        <span>Expires {formatExpiry(tokenItem.expiresAt)}</span>
                         {tokenItem.lastUsedAt && (
                           <>
                             {" · "}
@@ -369,9 +395,24 @@ export function AdminTokenManager() {
                   max={MAX_EXPIRY_DAYS}
                   value={editExpiresInDays}
                   onChange={(event) => setEditExpiresInDays(event.target.value)}
+                  disabled={editIsLifetime}
                 />
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="editTokenLifetime"
+                    checked={editIsLifetime}
+                    onCheckedChange={(checked) => {
+                      const isChecked = checked === true
+                      setEditIsLifetime(isChecked)
+                      if (isChecked) setEditExpiresInDays("")
+                    }}
+                  />
+                  <Label htmlFor="editTokenLifetime" className="text-xs">
+                    Lifetime (ไม่หมดอายุ)
+                  </Label>
+                </div>
                 <p className="text-xs text-muted-foreground">
-                  Current expiry: {formatDate(editingToken.expiresAt)}
+                  Current expiry: {formatExpiry(editingToken.expiresAt)}
                 </p>
               </div>
               {editError && <p className="text-sm text-destructive">{editError}</p>}

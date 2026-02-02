@@ -11,8 +11,9 @@ const updateTokenSchema = z
     name: z.string().min(1).max(100).optional(),
     expiresInDays: z.number().int().min(1).max(MAX_EXPIRY_DAYS).optional(),
     expiresAt: z.string().optional(),
+    lifetime: z.boolean().optional(),
   })
-  .refine((data) => data.name || data.expiresInDays || data.expiresAt, {
+  .refine((data) => data.name || data.expiresInDays || data.expiresAt || data.lifetime, {
     message: "No fields to update",
   })
 
@@ -21,7 +22,7 @@ const shapeTokenResponse = (token: {
   name: string
   tokenLast4: string
   createdAt: Date
-  expiresAt: Date
+  expiresAt: Date | null
   lastUsedAt: Date | null
   revokedAt: Date | null
   createdBy: { id: string; name: string | null; email: string }
@@ -51,8 +52,10 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     const body = await request.json().catch(() => ({}))
     const validatedData = updateTokenSchema.parse(body)
 
-    let expiresAt: Date | undefined
-    if (validatedData.expiresAt) {
+    let expiresAt: Date | null | undefined
+    if (validatedData.lifetime) {
+      expiresAt = null
+    } else if (validatedData.expiresAt) {
       const parsed = new Date(validatedData.expiresAt)
       if (Number.isNaN(parsed.getTime())) {
         return NextResponse.json({ error: "Invalid expiresAt value" }, { status: 400 })
@@ -66,11 +69,11 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
       return NextResponse.json({ error: "expiresAt must be in the future" }, { status: 400 })
     }
 
-    const updateData: { name?: string; expiresAt?: Date } = {}
+    const updateData: { name?: string; expiresAt?: Date | null } = {}
     if (validatedData.name) {
       updateData.name = validatedData.name.trim()
     }
-    if (expiresAt) {
+    if (expiresAt !== undefined) {
       updateData.expiresAt = expiresAt
     }
 

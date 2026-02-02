@@ -11,6 +11,7 @@ const MAX_EXPIRY_DAYS = 365
 const adminTokenSchema = z.object({
   name: z.string().min(1).max(100),
   expiresInDays: z.number().int().min(1).max(MAX_EXPIRY_DAYS).optional(),
+  lifetime: z.boolean().optional(),
 })
 
 const shapeTokenResponse = (token: {
@@ -18,7 +19,7 @@ const shapeTokenResponse = (token: {
   name: string
   tokenLast4: string
   createdAt: Date
-  expiresAt: Date
+  expiresAt: Date | null
   lastUsedAt: Date | null
   revokedAt: Date | null
   createdBy: { id: string; name: string | null; email: string }
@@ -79,8 +80,9 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => ({}))
     const validatedData = adminTokenSchema.parse(body)
+    const isLifetime = validatedData.lifetime === true
     const expiresInDays = validatedData.expiresInDays ?? DEFAULT_EXPIRY_DAYS
-    const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000)
+    const expiresAt = isLifetime ? null : new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000)
 
     const rawToken = `api_${randomBytes(32).toString("hex")}`
     const tokenHash = hashApiToken(rawToken)
