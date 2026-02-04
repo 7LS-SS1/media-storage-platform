@@ -6,6 +6,7 @@ import os from "os"
 import path from "path"
 import { prisma } from "@/lib/prisma"
 import { extractR2Key, generateUploadKey, getPublicR2Url, getSignedR2Url, uploadFileToR2 } from "@/lib/r2"
+import { generateThumbnailFromLocalFile } from "@/lib/video-thumbnail"
 
 const FFMPEG_PATH = process.env.FFMPEG_PATH || "ffmpeg"
 
@@ -170,6 +171,12 @@ const transcodeVideoToMp4 = async (videoId: string, videoUrl: string) => {
         transcodeProgress: 100,
       },
     })
+
+    try {
+      await generateThumbnailFromLocalFile(videoId, outputPath)
+    } catch (error) {
+      console.error("Failed to generate thumbnail after transcode:", error)
+    }
   } finally {
     await cleanupFiles(inputPath, outputPath)
   }

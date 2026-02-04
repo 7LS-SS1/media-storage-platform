@@ -7,6 +7,7 @@ import { normalizeActors, toActorNames } from "@/lib/actors"
 import { mergeTags, normalizeTags } from "@/lib/tags"
 import { createVideoSchema, normalizeIdList, videoQuerySchema } from "@/lib/validation"
 import { enqueueVideoTranscode, shouldTranscodeToMp4 } from "@/lib/video-transcode"
+import { enqueueVideoThumbnail } from "@/lib/video-thumbnail"
 import { markMp4VideosReady } from "@/lib/video-status"
 
 const mapCategories = (categories?: Array<{ id: string; name: string }> | null) =>
@@ -157,6 +158,9 @@ export async function POST(request: NextRequest) {
     }
 
     enqueueVideoTranscode(video.id, video.videoUrl, video.mimeType)
+    if (!shouldTranscode && !validatedData.thumbnailUrl) {
+      enqueueVideoThumbnail(video.id, video.videoUrl, video.thumbnailUrl)
+    }
 
     const responseVideo = {
       ...video,

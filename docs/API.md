@@ -111,6 +111,9 @@ Create new video entry.
 }
 ```
 
+Notes:
+- `thumbnailUrl` is optional. If omitted, the system will attempt to generate a thumbnail automatically after upload.
+
 ### GET /api/videos
 List videos with filters.
 
