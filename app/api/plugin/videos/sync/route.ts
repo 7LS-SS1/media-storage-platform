@@ -4,6 +4,7 @@ import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { isSystem } from "@/lib/roles"
 import { extractR2Key, getPublicR2Url, listR2VideoObjects } from "@/lib/r2"
+import { parseStorageBucket } from "@/lib/storage-bucket"
 import { enqueueVideoTranscode } from "@/lib/video-transcode"
 
 const MAX_BATCH = 1000
@@ -22,20 +23,21 @@ const parseLimit = (value: unknown) => {
   return undefined
 }
 
-const buildSyncOptions = (input: { cursor?: unknown; limit?: unknown }) => {
+const buildSyncOptions = (input: { cursor?: unknown; limit?: unknown; bucket?: unknown }) => {
   const continuationToken = typeof input.cursor === "string" && input.cursor.length > 0 ? input.cursor : undefined
   const limitValue = parseLimit(input.limit)
   const maxKeys =
     typeof limitValue === "number"
       ? Math.min(Math.max(Math.floor(limitValue), 1), MAX_BATCH)
       : MAX_BATCH
+  const bucket = parseStorageBucket(typeof input.bucket === "string" ? input.bucket : undefined)
 
-  return { continuationToken, maxKeys }
+  return { continuationToken, maxKeys, bucket }
 }
 
 const handleSync = async (
   request: NextRequest,
-  options: { continuationToken?: string; maxKeys: number },
+  options: { continuationToken?: string; maxKeys: number; bucket: "media" | "jav" },
 ) => {
   try {
     const user = await getUserFromRequest(request)
@@ -50,6 +52,7 @@ const handleSync = async (
     const { objects, nextContinuationToken } = await listR2VideoObjects({
       continuationToken: options.continuationToken,
       maxKeys: options.maxKeys,
+      bucket: options.bucket,
     })
 
     const mp4Objects = objects.filter((item) => item.key.toLowerCase().endsWith(".mp4"))
@@ -57,11 +60,11 @@ const handleSync = async (
     const mp4KeySet = new Set(mp4Objects.map((item) => item.key))
 
     const existingVideos = await prisma.video.findMany({
-      select: { id: true, videoUrl: true },
+      select: { id: true, videoUrl: true, storageBucket: true },
     })
     const existingKeyMap = new Map<string, { id: string }>()
     for (const video of existingVideos) {
-      const key = extractR2Key(video.videoUrl)
+      const key = extractR2Key(video.videoUrl, parseStorageBucket(video.storageBucket))
       if (key) {
         existingKeyMap.set(key, { id: video.id })
       }
@@ -105,11 +108,12 @@ const handleSync = async (
           prisma.video.update({
             where: { id: item.id },
             data: {
-              videoUrl: getPublicR2Url(item.key),
+              videoUrl: getPublicR2Url(item.key, options.bucket),
               mimeType: "video/mp4",
               status: "READY",
               transcodeProgress: 100,
               fileSize: item.size ?? undefined,
+              storageBucket: options.bucket,
             },
           }),
         ),
@@ -121,7 +125,7 @@ const handleSync = async (
         data: toCreate.map((item) => ({
           title: toTitle(item.key),
           description: null,
-          videoUrl: getPublicR2Url(item.key),
+          videoUrl: getPublicR2Url(item.key, options.bucket),
           thumbnailUrl: null,
           duration: null,
           fileSize: item.size ?? null,
@@ -129,6 +133,7 @@ const handleSync = async (
           visibility: "PUBLIC",
           status: "READY",
           transcodeProgress: 100,
+          storageBucket: options.bucket,
           createdById: user.userId,
         })),
       })
@@ -141,7 +146,7 @@ const handleSync = async (
             data: {
               title: toTitle(item.key),
               description: null,
-              videoUrl: getPublicR2Url(item.key),
+              videoUrl: getPublicR2Url(item.key, options.bucket),
               thumbnailUrl: null,
               duration: null,
               fileSize: item.size ?? null,
@@ -149,11 +154,12 @@ const handleSync = async (
               visibility: "PUBLIC",
               status: "PROCESSING",
               transcodeProgress: 0,
+              storageBucket: options.bucket,
               createdById: user.userId,
             },
           })
 
-          enqueueVideoTranscode(video.id, video.videoUrl, video.mimeType)
+          enqueueVideoTranscode(video.id, video.videoUrl, video.mimeType, options.bucket)
         }),
       )
     }
@@ -179,7 +185,7 @@ const handleSync = async (
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}))
-  const options = buildSyncOptions({ cursor: body.cursor, limit: body.limit })
+  const options = buildSyncOptions({ cursor: body.cursor, limit: body.limit, bucket: body.bucket })
   return await handleSync(request, options)
 }
 
@@ -188,6 +194,7 @@ export async function GET(request: NextRequest) {
   const options = buildSyncOptions({
     cursor: searchParams.get("cursor"),
     limit: searchParams.get("limit"),
+    bucket: searchParams.get("bucket"),
   })
   return await handleSync(request, options)
 }

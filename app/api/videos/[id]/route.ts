@@ -7,6 +7,7 @@ import { normalizeActors, toActorNames } from "@/lib/actors"
 import { mergeTags, normalizeTags } from "@/lib/tags"
 import { normalizeIdList, updateVideoSchema } from "@/lib/validation"
 import { markMp4VideosReady } from "@/lib/video-status"
+import { parseStorageBucket } from "@/lib/storage-bucket"
 
 const mapCategories = (categories?: Array<{ id: string; name: string }> | null) =>
   (categories ?? []).map((category) => ({ id: category.id, name: category.name }))
@@ -17,26 +18,31 @@ const mapPluginVideo = (video: {
   description: string | null
   videoUrl: string
   thumbnailUrl: string | null
+  storageBucket: string
   duration: number | null
   createdAt: Date
   updatedAt: Date
   tags: string[]
   categories?: Array<{ id: string; name: string }> | null
   actors?: Array<{ name: string }> | string[] | null
-}) => ({
-  id: video.id,
-  title: video.title,
-  description: video.description ?? "",
-  video_url: normalizeR2Url(video.videoUrl),
-  playback_url: toPublicPlaybackUrl(video.videoUrl) ?? normalizeR2Url(video.videoUrl),
-  thumbnail_url: normalizeR2Url(video.thumbnailUrl),
-  duration: video.duration,
-  tags: mergeTags(video.tags, video.categories ?? []),
-  categories: mapCategories(video.categories),
-  actors: toActorNames(video.actors),
-  created_at: video.createdAt,
-  updated_at: video.updatedAt,
-})
+}) => {
+  const bucket = parseStorageBucket(video.storageBucket)
+  return {
+    id: video.id,
+    title: video.title,
+    description: video.description ?? "",
+    video_url: normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl,
+    playback_url:
+      toPublicPlaybackUrl(video.videoUrl, bucket) ?? normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl,
+    thumbnail_url: normalizeR2Url(video.thumbnailUrl, bucket),
+    duration: video.duration,
+    tags: mergeTags(video.tags, video.categories ?? []),
+    categories: mapCategories(video.categories),
+    actors: toActorNames(video.actors),
+    created_at: video.createdAt,
+    updated_at: video.updatedAt,
+  }
+}
 import { deleteFromR2 } from "@/lib/r2"
 
 // GET - Get video by ID
@@ -82,6 +88,8 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
       return NextResponse.json({ error: "Video not found" }, { status: 404 })
     }
 
+    const bucket = parseStorageBucket(video.storageBucket)
+
     // Check access permissions
     if (video.visibility === "PRIVATE" && video.createdById !== user.userId && !canViewAllVideos(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -101,13 +109,13 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
 
     const userAgent = request.headers.get("user-agent") ?? ""
     const isPluginRequest = Boolean(request.headers.get("authorization")) || userAgent.includes("7LS-Video-Publisher")
-    const resolvedVideoUrl = await getSignedPlaybackUrl(video.videoUrl)
+    const resolvedVideoUrl = await getSignedPlaybackUrl(video.videoUrl, 3600, bucket)
     const actorNames = video.actors.map((actor) => actor.name)
     const normalizedVideo = {
       ...video,
       actors: actorNames,
-      videoUrl: resolvedVideoUrl ?? normalizeR2Url(video.videoUrl) ?? video.videoUrl,
-      thumbnailUrl: normalizeR2Url(video.thumbnailUrl),
+      videoUrl: resolvedVideoUrl ?? normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl,
+      thumbnailUrl: normalizeR2Url(video.thumbnailUrl, bucket),
     }
 
     if (isPluginRequest) {
@@ -147,6 +155,8 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
       return NextResponse.json({ error: "Video not found" }, { status: 404 })
     }
 
+    const bucket = parseStorageBucket(video.storageBucket)
+
     // Only admin or owner can update
     if (video.createdById !== user.userId && !canViewAllVideos(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -155,6 +165,12 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
     const body = await request.json()
     const validatedData = updateVideoSchema.parse(body)
     const actors = validatedData.actors === undefined ? null : normalizeActors(validatedData.actors)
+    const shouldUpdateThumbnail = validatedData.thumbnailUrl !== undefined
+    const previousThumbnailUrl = video.thumbnailUrl ?? null
+    const shouldUpdateMovieFields =
+      validatedData.movieCode !== undefined ||
+      validatedData.studio !== undefined ||
+      validatedData.releaseDate !== undefined
 
     // Update video
     const nextCategoryIds =
@@ -203,9 +219,13 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
       data: {
         title: validatedData.title,
         description: validatedData.description,
+        movieCode: shouldUpdateMovieFields ? validatedData.movieCode : undefined,
+        studio: shouldUpdateMovieFields ? validatedData.studio : undefined,
+        releaseDate: shouldUpdateMovieFields ? validatedData.releaseDate : undefined,
         tags: validatedData.tags === undefined ? undefined : normalizeTags(validatedData.tags),
         visibility: validatedData.visibility,
         status: validatedData.status,
+        thumbnailUrl: shouldUpdateThumbnail ? validatedData.thumbnailUrl : undefined,
         categories:
           normalizedCategoryIds === null
             ? undefined
@@ -274,6 +294,17 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
       )
     }
 
+    if (shouldUpdateThumbnail && previousThumbnailUrl && previousThumbnailUrl !== validatedData.thumbnailUrl) {
+      try {
+        const thumbnailKey = extractR2Key(previousThumbnailUrl, bucket)
+        if (thumbnailKey) {
+          await deleteFromR2(thumbnailKey, bucket)
+        }
+      } catch (error) {
+        console.error("Failed to delete old thumbnail:", error)
+      }
+    }
+
     return NextResponse.json({
       message: "Video updated successfully",
       video: {
@@ -311,22 +342,24 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
       return NextResponse.json({ error: "Video not found" }, { status: 404 })
     }
 
+    const bucket = parseStorageBucket(video.storageBucket)
+
     if (video.createdById !== user.userId && !canViewAllVideos(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
     // Delete video file from R2
     try {
-      const videoKey = extractR2Key(video.videoUrl)
+      const videoKey = extractR2Key(video.videoUrl, bucket)
       if (videoKey) {
-        await deleteFromR2(videoKey)
+        await deleteFromR2(videoKey, bucket)
       }
 
       // Delete thumbnail if exists
       if (video.thumbnailUrl) {
-        const thumbnailKey = extractR2Key(video.thumbnailUrl)
+        const thumbnailKey = extractR2Key(video.thumbnailUrl, bucket)
         if (thumbnailKey) {
-          await deleteFromR2(thumbnailKey)
+          await deleteFromR2(thumbnailKey, bucket)
         }
       }
     } catch (error) {

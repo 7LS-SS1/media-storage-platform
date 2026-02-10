@@ -6,6 +6,9 @@ export const createVideoSchema = z
   .object({
     title: z.string().min(1, "Title is required").max(200),
     description: z.string().max(2000).optional(),
+    movieCode: z.string().max(100).optional().nullable(),
+    studio: z.string().max(200).optional().nullable(),
+    releaseDate: z.union([z.coerce.date(), z.null()]).optional(),
     tags: z.array(z.string().min(1).max(50)).max(TAG_LIMIT).optional(),
     actors: z.array(z.string().min(1).max(100)).max(50).optional(),
     categoryId: z.string().min(1).optional(),
@@ -14,6 +17,7 @@ export const createVideoSchema = z
     allowedDomainIds: z.array(z.string().min(1)).optional(),
     videoUrl: z.string().url(),
     thumbnailUrl: z.string().url().optional().nullable(),
+    storageBucket: z.enum(["media", "jav"]).optional().default("media"),
     duration: z.number().int().min(0).optional(),
     fileSize: z.number().int().min(0).optional(),
     mimeType: z.string().min(1).optional(),
@@ -32,6 +36,9 @@ export const updateVideoSchema = z
   .object({
     title: z.string().min(1).max(200).optional(),
     description: z.string().max(2000).optional().nullable(),
+    movieCode: z.string().max(100).optional().nullable(),
+    studio: z.string().max(200).optional().nullable(),
+    releaseDate: z.union([z.coerce.date(), z.null()]).optional(),
     tags: z.array(z.string().min(1).max(50)).max(TAG_LIMIT).optional(),
     actors: z.array(z.string().min(1).max(100)).max(50).optional(),
     categoryId: z.string().min(1).optional().nullable(),
@@ -39,6 +46,7 @@ export const updateVideoSchema = z
     visibility: z.enum(["PUBLIC", "PRIVATE", "DOMAIN_RESTRICTED"]).optional(),
     status: z.enum(["PROCESSING", "READY", "FAILED"]).optional(),
     allowedDomainIds: z.array(z.string().min(1)).optional(),
+    thumbnailUrl: z.string().url().optional().nullable(),
   })
   .superRefine((data, ctx) => {
     if (data.visibility === "DOMAIN_RESTRICTED" && (!data.allowedDomainIds || data.allowedDomainIds.length === 0)) {
@@ -59,6 +67,7 @@ export const videoQuerySchema = z.object({
   search: z.string().optional(),
   categoryId: z.string().optional(),
   visibility: z.enum(["PUBLIC", "PRIVATE", "DOMAIN_RESTRICTED"]).optional(),
+  storageBucket: z.enum(["media", "jav"]).optional(),
   sort: z.enum(["newest", "oldest", "popular"]).default("newest"),
 })
 

@@ -4,6 +4,7 @@ import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { isSystem } from "@/lib/roles"
 import { enqueueVideoTranscode } from "@/lib/video-transcode"
+import { parseStorageBucket } from "@/lib/storage-bucket"
 
 const DEFAULT_LIMIT = 200
 const MAX_LIMIT = 1000
@@ -68,12 +69,18 @@ export async function POST(request: NextRequest) {
         id: true,
         videoUrl: true,
         mimeType: true,
+        storageBucket: true,
       },
     })
 
     if (!validated.dryRun) {
       for (const video of videos) {
-        enqueueVideoTranscode(video.id, video.videoUrl, video.mimeType)
+        enqueueVideoTranscode(
+          video.id,
+          video.videoUrl,
+          video.mimeType,
+          parseStorageBucket(video.storageBucket),
+        )
       }
     }
 

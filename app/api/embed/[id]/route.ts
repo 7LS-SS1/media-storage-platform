@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getSignedPlaybackUrl, normalizeR2Url } from "@/lib/r2"
 import { getRequestingDomain, isDomainAllowedForVideo } from "@/lib/domain-security"
+import { parseStorageBucket } from "@/lib/storage-bucket"
 
 export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params
@@ -24,6 +25,8 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
       return NextResponse.json({ error: "Video not found" }, { status: 404 })
     }
 
+    const bucket = parseStorageBucket(video.storageBucket)
+
     // Check if video is ready
     if (video.status !== "READY") {
       return NextResponse.json({ error: "Video is not ready" }, { status: 400 })
@@ -38,12 +41,12 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
 
     // For PUBLIC videos, allow access from anywhere
     if (video.visibility === "PUBLIC") {
-      const resolvedVideoUrl = await getSignedPlaybackUrl(video.videoUrl)
+      const resolvedVideoUrl = await getSignedPlaybackUrl(video.videoUrl, 3600, bucket)
       return NextResponse.json({
         video: {
           id: video.id,
           title: video.title,
-          videoUrl: resolvedVideoUrl ?? normalizeR2Url(video.videoUrl) ?? video.videoUrl,
+          videoUrl: resolvedVideoUrl ?? normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl,
           visibility: video.visibility,
           status: video.status,
         },
@@ -73,12 +76,12 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
       }
 
       // Domain is allowed
-      const resolvedVideoUrl = await getSignedPlaybackUrl(video.videoUrl)
+      const resolvedVideoUrl = await getSignedPlaybackUrl(video.videoUrl, 3600, bucket)
       return NextResponse.json({
         video: {
           id: video.id,
           title: video.title,
-          videoUrl: resolvedVideoUrl ?? normalizeR2Url(video.videoUrl) ?? video.videoUrl,
+          videoUrl: resolvedVideoUrl ?? normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl,
           visibility: video.visibility,
           status: video.status,
         },

@@ -62,17 +62,30 @@ model Category {
   @@map("categories")
 }
 
+model Studio {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("studios")
+}
+
 // Video Model
 model Video {
   id           String          @id @default(cuid())
   title        String
   description  String?
+  movieCode    String?         @map("movie_code")
+  studio       String?         @map("studio")
+  releaseDate  DateTime?       @map("release_date")
   tags         String[]        @default([])
   videoUrl     String          @map("video_url") // R2 URL
   thumbnailUrl String?         @map("thumbnail_url") // R2 URL
   duration     Int?            // in seconds
   fileSize     Int?            @map("file_size") // in bytes
   mimeType     String?         @map("mime_type")
+  storageBucket String         @default("media") @map("storage_bucket")
   visibility   VideoVisibility @default(PUBLIC)
   status       VideoStatus     @default(PROCESSING)
   transcodeProgress Int?       @map("transcode_progress")
@@ -92,6 +105,7 @@ model Video {
   @@index([createdById])
   @@index([status])
   @@index([visibility])
+  @@index([storageBucket])
   @@map("videos")
 }
 

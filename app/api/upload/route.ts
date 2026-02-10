@@ -23,6 +23,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData()
     const file = formData.get("file") as File
     const type = formData.get("type") as string // 'video' or 'thumbnail'
+    const storageBucket = (formData.get("storageBucket") as string) || "media"
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 })
@@ -57,11 +58,19 @@ export async function POST(request: NextRequest) {
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
 
+    if (!["media", "jav"].includes(storageBucket)) {
+      return NextResponse.json({ error: "Invalid storage bucket" }, { status: 400 })
+    }
+
     // Generate unique filename
-    const filename = generateUploadKey(file.name, type === "thumbnail" ? "thumbnail" : "video")
+    const filename = generateUploadKey(
+      file.name,
+      type === "thumbnail" ? "thumbnail" : "video",
+      storageBucket as "media" | "jav",
+    )
 
     // Upload to R2
-    const url = await uploadToR2(buffer, filename, uploadContentType)
+    const url = await uploadToR2(buffer, filename, uploadContentType, storageBucket as "media" | "jav")
 
     return NextResponse.json(
       {
@@ -70,6 +79,7 @@ export async function POST(request: NextRequest) {
         filename,
         size: file.size,
         type: uploadContentType,
+        storageBucket,
       },
       { status: 200 },
     )

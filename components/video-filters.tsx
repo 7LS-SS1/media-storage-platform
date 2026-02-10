@@ -4,6 +4,7 @@ import type React from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Search, X } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useState, useEffect } from "react"
@@ -20,6 +21,7 @@ export function VideoFilters() {
   const [category, setCategory] = useState(searchParams.get("categoryId") || "all")
   const [visibility, setVisibility] = useState(searchParams.get("visibility") || "all")
   const [sort, setSort] = useState(searchParams.get("sort") || "newest")
+  const [storageBucket, setStorageBucket] = useState(searchParams.get("storageBucket") || "all")
   const [categories, setCategories] = useState<Category[]>([])
 
   // Fetch categories
@@ -43,12 +45,14 @@ export function VideoFilters() {
     applyFilters()
   }
 
-  const applyFilters = () => {
+  const applyFilters = (overrides?: { storageBucket?: string }) => {
     const params = new URLSearchParams()
     if (search) params.set("search", search)
     if (category !== "all") params.set("categoryId", category)
     if (visibility !== "all") params.set("visibility", visibility)
     if (sort !== "newest") params.set("sort", sort)
+    const nextBucket = overrides?.storageBucket ?? storageBucket
+    if (nextBucket !== "all") params.set("storageBucket", nextBucket)
     params.set("page", "1")
 
     router.push(`/videos?${params.toString()}`)
@@ -59,13 +63,26 @@ export function VideoFilters() {
     setCategory("all")
     setVisibility("all")
     setSort("newest")
+    setStorageBucket("all")
     router.push("/videos")
   }
 
-  const hasActiveFilters = search || category !== "all" || visibility !== "all" || sort !== "newest"
+  const hasActiveFilters =
+    search || category !== "all" || visibility !== "all" || sort !== "newest" || storageBucket !== "all"
 
   return (
     <div className="mb-6 space-y-4">
+      <Tabs value={storageBucket} onValueChange={(value) => {
+        setStorageBucket(value)
+        applyFilters({ storageBucket: value })
+      }}>
+        <TabsList>
+          <TabsTrigger value="all">ทั้งหมด</TabsTrigger>
+          <TabsTrigger value="media">คลิปไทย</TabsTrigger>
+          <TabsTrigger value="jav">หนัง AV</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
       <form onSubmit={handleSearch} className="flex gap-2">
         <Input
           placeholder="Search videos by title or description..."

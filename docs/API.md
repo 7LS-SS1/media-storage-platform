@@ -79,6 +79,7 @@ Upload video file to R2.
 **Request:** \`multipart/form-data\`
 - \`file\`: Video file
 - \`type\`: "video" or "thumbnail"
+- \`storageBucket\`: "media" | "jav" (optional, default: "media")
 
 **Response:** \`200 OK\`
 ```json
@@ -99,8 +100,12 @@ Create new video entry.
 {
   "title": "My Video",
   "description": "Video description",
+  "movieCode": "ABCD-123",
+  "studio": "Studio name",
+  "releaseDate": "2025-01-15T00:00:00.000Z",
   "videoUrl": "https://r2.../video.mp4",
   "thumbnailUrl": "https://r2.../thumb.jpg",
+  "storageBucket": "media",
   "categoryIds": ["cat_1", "cat_2"],
   "tags": ["trailer", "action"],
   "actors": ["Actor A", "Actor B"],
@@ -113,6 +118,7 @@ Create new video entry.
 
 Notes:
 - `thumbnailUrl` is optional. If omitted, the system will attempt to generate a thumbnail automatically after upload.
+- AV movies can use `movieCode`, `studio`, `releaseDate`, and `tags` (as genres).
 
 ### GET /api/videos
 List videos with filters.
@@ -123,6 +129,7 @@ List videos with filters.
 - \`search\`: Search in title/description
 - \`categoryId\`: Filter by category
 - \`visibility\`: Filter by visibility
+- \`storageBucket\`: "media" | "jav"
 - \`sort\`: newest | oldest | popular
 
 ### GET /api/videos/:id
@@ -132,6 +139,9 @@ Get video details.
 Update video.
 
 **Auth Required:** ADMIN or EDITOR (owner)
+
+Notes:
+- Supports partial updates. AV metadata fields: `movieCode`, `studio`, `releaseDate`, and `tags` (genres).
 
 ### DELETE /api/videos/:id
 Delete video.
@@ -147,6 +157,19 @@ List all categories.
 
 ### POST /api/categories
 Create category (ADMIN only).
+
+---
+
+## Studio Endpoints
+
+### GET /api/studios
+List all studios.
+
+### POST /api/studios
+Create studio (ADMIN only).
+
+### DELETE /api/studios/:id
+Delete studio (ADMIN only).
 
 ---
 

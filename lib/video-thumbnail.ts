@@ -6,6 +6,7 @@ import os from "os"
 import path from "path"
 import { prisma } from "@/lib/prisma"
 import { extractR2Key, generateUploadKey, getPublicR2Url, getSignedR2Url, uploadFileToR2 } from "@/lib/r2"
+import { DEFAULT_STORAGE_BUCKET, type StorageBucket } from "@/lib/storage-bucket"
 
 const FFMPEG_PATH = process.env.FFMPEG_PATH || "ffmpeg"
 const FFPROBE_PATH = process.env.FFPROBE_PATH || "ffprobe"
@@ -136,6 +137,7 @@ const shouldGenerateThumbnail = async (videoId: string) => {
 
 type ThumbnailOptions = {
   skipExistingCheck?: boolean
+  storageBucket?: StorageBucket
 }
 
 export const generateThumbnailFromLocalFile = async (
@@ -145,6 +147,7 @@ export const generateThumbnailFromLocalFile = async (
 ) => {
   const shouldGenerate = options?.skipExistingCheck ? true : await shouldGenerateThumbnail(videoId)
   if (!shouldGenerate) return null
+  const storageBucket = options?.storageBucket ?? DEFAULT_STORAGE_BUCKET
 
   const outputPath = path.join(os.tmpdir(), `thumbnail-${videoId}-${Date.now()}.jpg`)
   try {
@@ -153,9 +156,9 @@ export const generateThumbnailFromLocalFile = async (
 
     await extractThumbnail(inputPath, outputPath, seekSeconds)
 
-    const targetKey = generateUploadKey(`${videoId}.jpg`, "thumbnail")
-    await uploadFileToR2(outputPath, targetKey, "image/jpeg")
-    const thumbnailUrl = getPublicR2Url(targetKey)
+    const targetKey = generateUploadKey(`${videoId}.jpg`, "thumbnail", storageBucket)
+    await uploadFileToR2(outputPath, targetKey, "image/jpeg", storageBucket)
+    const thumbnailUrl = getPublicR2Url(targetKey, storageBucket)
 
     await prisma.video.updateMany({
       where: { id: videoId, thumbnailUrl: null },
@@ -169,29 +172,45 @@ export const generateThumbnailFromLocalFile = async (
 }
 
 export const generateThumbnailFromVideo = async (videoId: string, videoUrl: string) => {
+  return await generateThumbnailFromVideoWithBucket(videoId, videoUrl, DEFAULT_STORAGE_BUCKET)
+}
+
+export const generateThumbnailFromVideoWithBucket = async (
+  videoId: string,
+  videoUrl: string,
+  storageBucket: StorageBucket,
+) => {
   const shouldGenerate = await shouldGenerateThumbnail(videoId)
   if (!shouldGenerate) return null
 
-  const sourceKey = extractR2Key(videoUrl)
+  const sourceKey = extractR2Key(videoUrl, storageBucket)
   if (!sourceKey) return null
 
-  const signedUrl = await getSignedR2Url(sourceKey)
+  const signedUrl = await getSignedR2Url(sourceKey, 3600, storageBucket)
   const tempBase = `thumbnail-${videoId}-${Date.now()}`
   const inputExt = path.extname(sourceKey) || ".mp4"
   const inputPath = path.join(os.tmpdir(), `${tempBase}${inputExt}`)
 
   try {
     await downloadToFile(signedUrl, inputPath)
-    return await generateThumbnailFromLocalFile(videoId, inputPath, { skipExistingCheck: true })
+    return await generateThumbnailFromLocalFile(videoId, inputPath, {
+      skipExistingCheck: true,
+      storageBucket,
+    })
   } finally {
     await cleanupFiles(inputPath)
   }
 }
 
-export const enqueueVideoThumbnail = (videoId: string, videoUrl: string, existingThumbnailUrl?: string | null) => {
+export const enqueueVideoThumbnail = (
+  videoId: string,
+  videoUrl: string,
+  existingThumbnailUrl?: string | null,
+  storageBucket: StorageBucket = DEFAULT_STORAGE_BUCKET,
+) => {
   if (existingThumbnailUrl) return
   setTimeout(() => {
-    generateThumbnailFromVideo(videoId, videoUrl).catch((error) => {
+    generateThumbnailFromVideoWithBucket(videoId, videoUrl, storageBucket).catch((error) => {
       console.error("Video thumbnail generation failed:", error)
     })
   }, 0)

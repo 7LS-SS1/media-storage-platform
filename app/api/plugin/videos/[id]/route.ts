@@ -6,6 +6,7 @@ import { canManageVideos, canViewAllVideos } from "@/lib/roles"
 import { normalizeActors, toActorNames } from "@/lib/actors"
 import { mergeTags, normalizeTags } from "@/lib/tags"
 import { normalizeIdList, updateVideoSchema } from "@/lib/validation"
+import { parseStorageBucket } from "@/lib/storage-bucket"
 
 const mapVideo = async (video: {
   id: string
@@ -13,6 +14,7 @@ const mapVideo = async (video: {
   description: string | null
   videoUrl: string
   thumbnailUrl: string | null
+  storageBucket: string
   duration: number | null
   createdAt: Date
   updatedAt: Date
@@ -20,15 +22,21 @@ const mapVideo = async (video: {
   categories?: Array<{ id: string; name: string }> | null
   actors?: Array<{ name: string }> | string[] | null
 }) => {
-  const signedUrl = await getSignedPlaybackUrl(video.videoUrl)
-  const publicUrl = toPublicPlaybackUrl(video.videoUrl) ?? normalizeR2Url(video.videoUrl)
+  const bucket = parseStorageBucket(video.storageBucket)
+  const signedUrl = await getSignedPlaybackUrl(video.videoUrl, 3600, bucket)
+  const publicUrl =
+    toPublicPlaybackUrl(video.videoUrl, bucket) ?? normalizeR2Url(video.videoUrl, bucket)
   return {
     id: video.id,
     title: video.title,
     description: video.description ?? "",
-    video_url: signedUrl ?? normalizeR2Url(video.videoUrl),
-    playback_url: publicUrl ?? signedUrl ?? normalizeR2Url(video.videoUrl),
-    thumbnail_url: normalizeR2Url(video.thumbnailUrl),
+    video_url: signedUrl ?? normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl,
+    playback_url:
+      publicUrl ??
+      signedUrl ??
+      normalizeR2Url(video.videoUrl, bucket) ??
+      video.videoUrl,
+    thumbnail_url: normalizeR2Url(video.thumbnailUrl, bucket),
     duration: video.duration,
     tags: mergeTags(video.tags, video.categories ?? []),
     categories: (video.categories ?? []).map((category) => ({ id: category.id, name: category.name })),
@@ -80,7 +88,8 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    const normalizedVideoUrl = normalizeR2Url(video.videoUrl) ?? video.videoUrl
+    const bucket = parseStorageBucket(video.storageBucket)
+    const normalizedVideoUrl = normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl
     const isMp4 =
       video.mimeType?.toLowerCase() === "video/mp4" || normalizedVideoUrl.toLowerCase().endsWith(".mp4")
     if (!isMp4) {
@@ -172,6 +181,7 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
         tags: validatedData.tags === undefined ? undefined : normalizeTags(validatedData.tags),
         visibility: validatedData.visibility,
         status: validatedData.status,
+        thumbnailUrl: validatedData.thumbnailUrl === undefined ? undefined : validatedData.thumbnailUrl,
         categories:
           normalizedCategoryIds === null
             ? undefined

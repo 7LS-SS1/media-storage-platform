@@ -13,6 +13,7 @@ const uploadUrlSchema = z.object({
   contentType: z.string().optional().default(""),
   size: z.number().int().positive(),
   type: z.enum(["video", "thumbnail"]),
+  storageBucket: z.enum(["media", "jav"]).optional().default("media"),
 })
 
 export async function POST(request: NextRequest) {
@@ -52,14 +53,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const key = generateUploadKey(validatedData.filename, validatedData.type)
-    const uploadUrl = await getSignedUploadUrl(key, uploadContentType)
-    const publicUrl = getPublicR2Url(key)
+    const key = generateUploadKey(validatedData.filename, validatedData.type, validatedData.storageBucket)
+    const uploadUrl = await getSignedUploadUrl(key, uploadContentType, 900, validatedData.storageBucket)
+    const publicUrl = getPublicR2Url(key, validatedData.storageBucket)
 
     return NextResponse.json({
       uploadUrl,
       publicUrl,
       key,
+      storageBucket: validatedData.storageBucket,
       contentType: uploadContentType,
     })
   } catch (error) {

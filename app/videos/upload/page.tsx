@@ -14,8 +14,10 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Textarea } from "@/components/ui/textarea"
 import { ActorSelect } from "@/components/actor-select"
+import { AV_GENRES } from "@/lib/av-genres"
 import { STANDARD_TAGS } from "@/lib/standard-tags"
 import { TAG_LIMIT } from "@/lib/tag-constraints"
 
@@ -30,7 +32,13 @@ interface Domain {
   isActive: boolean
 }
 
+interface Studio {
+  id: string
+  name: string
+}
+
 type Visibility = "PUBLIC" | "PRIVATE" | "DOMAIN_RESTRICTED"
+type StorageBucket = "media" | "jav"
 
 export default function UploadVideoPage() {
   const router = useRouter()
@@ -39,9 +47,17 @@ export default function UploadVideoPage() {
   const [actors, setActors] = useState<string[]>([])
   const [categoryIds, setCategoryIds] = useState<string[]>([])
   const [visibility, setVisibility] = useState<Visibility>("PUBLIC")
+  const [storageBucket, setStorageBucket] = useState<StorageBucket>("media")
   const [allowedDomainIds, setAllowedDomainIds] = useState<string[]>([])
   const [videoFile, setVideoFile] = useState<File | null>(null)
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null)
+  const [movieCode, setMovieCode] = useState("")
+  const [studio, setStudio] = useState("")
+  const [releaseDate, setReleaseDate] = useState("")
+  const [studios, setStudios] = useState<Studio[]>([])
+  const [newStudioName, setNewStudioName] = useState("")
+  const [creatingStudio, setCreatingStudio] = useState(false)
+  const [studioError, setStudioError] = useState<string | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
   const [domains, setDomains] = useState<Domain[]>([])
   const [newCategoryName, setNewCategoryName] = useState("")
@@ -57,6 +73,17 @@ export default function UploadVideoPage() {
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   const normalizedTags = useMemo(() => new Set(tags.map((tag) => tag.toLowerCase())), [tags])
+  const studioNames = useMemo(() => studios.map((item) => item.name), [studios])
+  const hasStudioOption = studio ? studioNames.includes(studio) : true
+  const isAv = storageBucket === "jav"
+  const tagOptions = isAv ? AV_GENRES : STANDARD_TAGS
+  const tagLabel = isAv ? "ประเภทหนัง" : "แท็ก"
+  const tagPlaceholder = isAv
+    ? "พิมพ์ประเภทหนังแล้วกด Enter หรือใส่คอมม่า"
+    : "พิมพ์แท็กแล้วกด Enter หรือใส่คอมม่า"
+  const tagOptionsLabel = isAv ? "ประเภทหนังยอดนิยม" : "แท็กมาตรฐาน"
+  const addAllTagLabel = isAv ? "เพิ่มทั้งหมด" : "เพิ่มแท๊กทั้งหมด"
+  const addTagLabel = isAv ? "เพิ่มประเภท" : "เพิ่มแท็ก"
   const tagLimitMessage = `เพิ่มแท็กได้สูงสุด ${TAG_LIMIT} รายการ`
 
   const slugify = (value: string) =>
@@ -72,6 +99,22 @@ export default function UploadVideoPage() {
       setTagError(null)
     }
   }, [tagError, tags.length])
+
+  useEffect(() => {
+    async function fetchStudios() {
+      try {
+        const response = await fetch("/api/studios")
+        if (response.ok) {
+          const data = await response.json()
+          setStudios(data.studios)
+        }
+      } catch (error) {
+        console.error("Failed to fetch studios:", error)
+      }
+    }
+
+    fetchStudios()
+  }, [])
 
   const addTags = (value: string) => {
     const nextTags = value
@@ -127,7 +170,7 @@ export default function UploadVideoPage() {
     }
   }
 
-  const toggleStandardTag = (tag: string) => {
+  const toggleTagOption = (tag: string) => {
     let hitLimit = false
     setTags((current) => {
       const key = tag.toLowerCase()
@@ -148,12 +191,12 @@ export default function UploadVideoPage() {
     }
   }
 
-  const addAllStandardTags = () => {
+  const addAllTagOptions = () => {
     let hitLimit = false
     setTags((current) => {
       const seen = new Set(current.map((value) => value.toLowerCase()))
       const merged = [...current]
-      for (const tag of STANDARD_TAGS) {
+      for (const tag of tagOptions) {
         const key = tag.toLowerCase()
         if (seen.has(key)) continue
         if (merged.length >= TAG_LIMIT) {
@@ -169,6 +212,71 @@ export default function UploadVideoPage() {
       setTagError(tagLimitMessage)
     } else {
       setTagError(null)
+    }
+  }
+
+  const handleCreateStudio = async () => {
+    const name = newStudioName.trim()
+    if (!name) {
+      setStudioError("กรุณากรอกชื่อค่ายหนัง")
+      return
+    }
+
+    setCreatingStudio(true)
+    setStudioError(null)
+
+    try {
+      const response = await fetch("/api/studios", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ name }),
+      })
+
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to create studio")
+      }
+
+      setStudios((current) => {
+        const next = [...current, data.studio]
+        next.sort((a, b) => a.name.localeCompare(b.name))
+        return next
+      })
+      setStudio(data.studio.name)
+      setNewStudioName("")
+      toast.success("เพิ่มค่ายหนังสำเร็จ")
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to create studio"
+      setStudioError(message)
+      toast.error(message)
+    } finally {
+      setCreatingStudio(false)
+    }
+  }
+
+  const handleDeleteStudio = async (studioToDelete: Studio) => {
+    const confirmed = window.confirm(`ลบค่ายหนัง \"${studioToDelete.name}\" หรือไม่?`)
+    if (!confirmed) return
+
+    try {
+      const response = await fetch(`/api/studios/${studioToDelete.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to delete studio")
+      }
+
+      setStudios((current) => current.filter((item) => item.id !== studioToDelete.id))
+      if (studio === studioToDelete.name) {
+        setStudio("")
+      }
+      toast.success("ลบค่ายหนังสำเร็จ")
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to delete studio"
+      toast.error(message)
     }
   }
 
@@ -279,6 +387,7 @@ export default function UploadVideoPage() {
     file: File,
     type: "video" | "thumbnail",
     onProgress: (progress: number) => void,
+    bucket: StorageBucket,
   ) => {
     const uploadResponse = await fetch("/api/upload-url", {
       method: "POST",
@@ -289,6 +398,7 @@ export default function UploadVideoPage() {
         contentType: file.type,
         size: file.size,
         type,
+        storageBucket: bucket,
       }),
     })
 
@@ -349,13 +459,13 @@ export default function UploadVideoPage() {
     setUploadProgress(0)
 
     try {
-      const videoUpload = await uploadFile(videoFile!, "video", setUploadProgress)
+      const videoUpload = await uploadFile(videoFile!, "video", setUploadProgress, storageBucket)
       let thumbnailUrl: string | undefined
 
       if (thumbnailFile) {
         setUploadStatus("Uploading thumbnail...")
         setUploadProgress(0)
-        const thumbnailUpload = await uploadFile(thumbnailFile, "thumbnail", setUploadProgress)
+        const thumbnailUpload = await uploadFile(thumbnailFile, "thumbnail", setUploadProgress, storageBucket)
         thumbnailUrl = thumbnailUpload.url
       }
 
@@ -369,13 +479,21 @@ export default function UploadVideoPage() {
           description: description.trim() || undefined,
           tags,
           actors,
-          categoryIds: categoryIds.length > 0 ? categoryIds : undefined,
+          categoryIds: !isAv && categoryIds.length > 0 ? categoryIds : undefined,
           visibility,
           allowedDomainIds: visibility === "DOMAIN_RESTRICTED" ? allowedDomainIds : undefined,
           videoUrl: videoUpload.url,
           thumbnailUrl,
           fileSize: videoUpload.size,
           mimeType: videoUpload.type,
+          storageBucket,
+          ...(isAv
+            ? {
+                movieCode: movieCode.trim() ? movieCode.trim() : null,
+                studio: studio.trim() ? studio.trim() : null,
+                releaseDate: releaseDate ? new Date(releaseDate).toISOString() : null,
+              }
+            : {}),
         }),
       })
 
@@ -416,10 +534,40 @@ export default function UploadVideoPage() {
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="space-y-2">
-                  <Label htmlFor="title">ชื่อคลิป</Label>
+                  <Label>ประเภทคลิป</Label>
+                  <ToggleGroup
+                    type="single"
+                    variant="outline"
+                    value={storageBucket}
+                    onValueChange={(value) => {
+                      if (value) setStorageBucket(value as StorageBucket)
+                    }}
+                    className="w-full"
+                  >
+                    <ToggleGroupItem value="media" className="flex-1">
+                      คลิปไทย
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="jav" className="flex-1">
+                      หนัง AV
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </div>
+                {isAv && (
+                  <div className="space-y-2">
+                    <Label htmlFor="movie-code">รหัสหนัง</Label>
+                    <Input
+                      id="movie-code"
+                      placeholder="กรอกรหัสหนัง"
+                      value={movieCode}
+                      onChange={(event) => setMovieCode(event.target.value)}
+                    />
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor="title">{isAv ? "ชื่อหนัง" : "ชื่อคลิป"}</Label>
                   <Input
                     id="title"
-                    placeholder="กรอกชื่อวิดีโอคลิป"
+                    placeholder={isAv ? "กรอกชื่อหนัง" : "กรอกชื่อวิดีโอคลิป"}
                     value={title}
                     onChange={(event) => setTitle(event.target.value)}
                   />
@@ -427,84 +575,186 @@ export default function UploadVideoPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="description">รายละเอียด</Label>
+                  <Label htmlFor="description">{isAv ? "เนื้อหาหนัง" : "รายละเอียด"}</Label>
                   <Textarea
                     id="description"
-                    placeholder="เพิ่มคำอธิบายสั้น ๆ สำหรับผู้ชม"
+                    placeholder={isAv ? "สรุปเนื้อหาแบบย่อ" : "เพิ่มคำอธิบายสั้น ๆ สำหรับผู้ชม"}
                     value={description}
                     onChange={(event) => setDescription(event.target.value)}
                   />
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>หมวดหมู่</Label>
-                    {categories.length === 0 ? (
-                      <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                        ยังไม่มีหมวดหมู่
+                {isAv && (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="release-date">วันที่ออกจำหน่าย</Label>
+                        <Input
+                          id="release-date"
+                          type="date"
+                          value={releaseDate}
+                          onChange={(event) => setReleaseDate(event.target.value)}
+                        />
                       </div>
-                    ) : (
-                      <div className="grid gap-2 md:grid-cols-2">
-                        {categories.map((category) => (
-                          <label
-                            key={category.id}
-                            className="flex items-center gap-2 rounded-md border p-2 text-sm"
-                          >
-                            <Checkbox
-                              checked={categoryIds.includes(category.id)}
-                              onCheckedChange={() => toggleCategory(category.id)}
-                            />
-                            <span>{category.name}</span>
-                          </label>
-                        ))}
+                      <div className="space-y-2">
+                        <Label>ค่ายหนัง</Label>
+                        <Select
+                          value={studio || "__none__"}
+                          onValueChange={(value) => setStudio(value === "__none__" ? "" : value)}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="เลือกค่ายหนัง" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">ไม่ระบุ</SelectItem>
+                            {!hasStudioOption && studio && (
+                              <SelectItem value={studio}>{studio} (ไม่อยู่ในรายการ)</SelectItem>
+                            )}
+                            {studios.map((studioItem) => (
+                              <SelectItem key={studioItem.id} value={studioItem.name}>
+                                {studioItem.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
-                    )}
-                    {categoryIds.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {categories
-                          .filter((category) => categoryIds.includes(category.id))
-                          .map((category) => (
-                            <Badge key={category.id} variant="secondary">
-                              {category.name}
-                            </Badge>
-                          ))}
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between rounded-md border border-dashed px-3 py-2">
-                      <Label htmlFor="new-category-switch">เพิ่มหมวดหมู่ใหม่</Label>
-                      <Switch
-                        id="new-category-switch"
-                        checked={enableNewCategory}
-                        onCheckedChange={handleToggleNewCategory}
-                      />
                     </div>
-                    {enableNewCategory && (
-                      <div className="space-y-2 rounded-md border border-dashed p-3">
-                        <Label htmlFor="new-category">ชื่อหมวดหมู่ใหม่</Label>
-                        <div className="flex gap-2">
-                          <Input
-                            id="new-category"
-                            placeholder="พิมพ์ชื่อหมวดหมู่"
-                            value={newCategoryName}
-                            onChange={(event) => {
-                              setNewCategoryName(event.target.value)
-                              if (categoryError) setCategoryError(null)
-                            }}
-                          />
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            onClick={handleCreateCategory}
-                            disabled={creatingCategory || !newCategoryName.trim()}
-                          >
-                            {creatingCategory ? "กำลังเพิ่ม..." : "เพิ่ม"}
-                          </Button>
-                        </div>
-                        {categoryError && <p className="text-sm text-destructive">{categoryError}</p>}
-                      </div>
-                    )}
-                  </div>
 
+                    <div className="space-y-3 rounded-md border border-dashed p-3">
+                      <div className="text-sm font-medium">จัดการค่ายหนัง</div>
+                      <div className="flex gap-2">
+                        <Input
+                          id="new-studio"
+                          placeholder="เพิ่มค่ายหนังใหม่"
+                          value={newStudioName}
+                          onChange={(event) => {
+                            setNewStudioName(event.target.value)
+                            if (studioError) setStudioError(null)
+                          }}
+                        />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={handleCreateStudio}
+                          disabled={creatingStudio || !newStudioName.trim()}
+                        >
+                          {creatingStudio ? "กำลังเพิ่ม..." : "เพิ่ม"}
+                        </Button>
+                      </div>
+                      {studioError && <p className="text-sm text-destructive">{studioError}</p>}
+                      {studios.length === 0 ? (
+                        <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                          ยังไม่มีค่ายหนัง
+                        </div>
+                      ) : (
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {studios.map((studioItem) => (
+                            <div
+                              key={studioItem.id}
+                              className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm"
+                            >
+                              <span>{studioItem.name}</span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDeleteStudio(studioItem)}
+                              >
+                                ลบ
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {!isAv ? (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>หมวดหมู่</Label>
+                      {categories.length === 0 ? (
+                        <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                          ยังไม่มีหมวดหมู่
+                        </div>
+                      ) : (
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {categories.map((category) => (
+                            <label
+                              key={category.id}
+                              className="flex items-center gap-2 rounded-md border p-2 text-sm"
+                            >
+                              <Checkbox
+                                checked={categoryIds.includes(category.id)}
+                                onCheckedChange={() => toggleCategory(category.id)}
+                              />
+                              <span>{category.name}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      {categoryIds.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {categories
+                            .filter((category) => categoryIds.includes(category.id))
+                            .map((category) => (
+                              <Badge key={category.id} variant="secondary">
+                                {category.name}
+                              </Badge>
+                            ))}
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between rounded-md border border-dashed px-3 py-2">
+                        <Label htmlFor="new-category-switch">เพิ่มหมวดหมู่ใหม่</Label>
+                        <Switch
+                          id="new-category-switch"
+                          checked={enableNewCategory}
+                          onCheckedChange={handleToggleNewCategory}
+                        />
+                      </div>
+                      {enableNewCategory && (
+                        <div className="space-y-2 rounded-md border border-dashed p-3">
+                          <Label htmlFor="new-category">ชื่อหมวดหมู่ใหม่</Label>
+                          <div className="flex gap-2">
+                            <Input
+                              id="new-category"
+                              placeholder="พิมพ์ชื่อหมวดหมู่"
+                              value={newCategoryName}
+                              onChange={(event) => {
+                                setNewCategoryName(event.target.value)
+                                if (categoryError) setCategoryError(null)
+                              }}
+                            />
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              onClick={handleCreateCategory}
+                              disabled={creatingCategory || !newCategoryName.trim()}
+                            >
+                              {creatingCategory ? "กำลังเพิ่ม..." : "เพิ่ม"}
+                            </Button>
+                          </div>
+                          {categoryError && <p className="text-sm text-destructive">{categoryError}</p>}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>เผยแพร่</Label>
+                      <Select value={visibility} onValueChange={(value) => setVisibility(value as Visibility)}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="การเผยแพร่" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="PUBLIC">เผยแพร่</SelectItem>
+                          <SelectItem value="PRIVATE">ส่วนตัว</SelectItem>
+                          <SelectItem value="DOMAIN_RESTRICTED">เจาะจง Domain</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ) : (
                   <div className="space-y-2">
                     <Label>เผยแพร่</Label>
                     <Select value={visibility} onValueChange={(value) => setVisibility(value as Visibility)}>
@@ -518,14 +768,19 @@ export default function UploadVideoPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                )}
+
+                <div className="space-y-2">
+                  <Label>ดารา/นักแสดง</Label>
+                  <ActorSelect value={actors} onChange={setActors} />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="tags-input">แท็ก</Label>
+                  <Label htmlFor="tags-input">{tagLabel}</Label>
                   <div className="flex flex-wrap gap-2">
                     <Input
                       id="tags-input"
-                      placeholder="พิมพ์แท็กแล้วกด Enter หรือใส่คอมม่า"
+                      placeholder={tagPlaceholder}
                       value={tagInput}
                       onChange={(event) => setTagInput(event.target.value)}
                       onKeyDown={handleTagKeyDown}
@@ -537,7 +792,7 @@ export default function UploadVideoPage() {
                       onClick={handleAddTag}
                       disabled={!tagInput.trim() || tags.length >= TAG_LIMIT}
                     >
-                      เพิ่มแท็ก
+                      {addTagLabel}
                     </Button>
                   </div>
                   {tags.length > 0 && (
@@ -559,32 +814,32 @@ export default function UploadVideoPage() {
                   )}
                   {tagError && <p className="text-sm text-destructive">{tagError}</p>}
                   <p className="text-xs text-muted-foreground">
-                    แยกแท็กด้วยคอมม่า และกด Enter เพื่อเพิ่ม ({tags.length}/{TAG_LIMIT})
+                    แยกด้วยคอมม่า และกด Enter เพื่อเพิ่ม ({tags.length}/{TAG_LIMIT})
                   </p>
                 </div>
 
                 <div className="space-y-2">
-                  <Label>แท็กมาตรฐาน</Label>
+                  <Label>{tagOptionsLabel}</Label>
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs text-muted-foreground">คลิกเพื่อเพิ่ม/ลบแท็กจากรายการมาตรฐาน</p>
+                    <p className="text-xs text-muted-foreground">คลิกเพื่อเพิ่ม/ลบจากรายการ</p>
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={addAllStandardTags}
+                      onClick={addAllTagOptions}
                       disabled={tags.length >= TAG_LIMIT}
                     >
-                      เพิ่มแท๊กทั้งหมด
+                      {addAllTagLabel}
                     </Button>
                   </div>
                   <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto rounded-md border p-2">
-                    {STANDARD_TAGS.map((tag) => {
+                    {tagOptions.map((tag) => {
                       const selected = normalizedTags.has(tag.toLowerCase())
                       return (
                         <button
                           key={tag}
                           type="button"
-                          onClick={() => toggleStandardTag(tag)}
+                          onClick={() => toggleTagOption(tag)}
                           className={`rounded-full border px-3 py-1 text-xs transition ${
                             selected
                               ? "border-primary bg-primary text-primary-foreground"
@@ -596,11 +851,6 @@ export default function UploadVideoPage() {
                       )
                     })}
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>ดารา/นักแสดง</Label>
-                  <ActorSelect value={actors} onChange={setActors} />
                 </div>
 
                 {visibility === "DOMAIN_RESTRICTED" && (

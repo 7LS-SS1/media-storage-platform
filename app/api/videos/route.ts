@@ -9,6 +9,7 @@ import { createVideoSchema, normalizeIdList, videoQuerySchema } from "@/lib/vali
 import { enqueueVideoTranscode, shouldTranscodeToMp4 } from "@/lib/video-transcode"
 import { enqueueVideoThumbnail } from "@/lib/video-thumbnail"
 import { markMp4VideosReady } from "@/lib/video-status"
+import { parseStorageBucket } from "@/lib/storage-bucket"
 
 const mapCategories = (categories?: Array<{ id: string; name: string }> | null) =>
   (categories ?? []).map((category) => ({ id: category.id, name: category.name }))
@@ -19,26 +20,31 @@ const mapPluginVideo = (video: {
   description: string | null
   videoUrl: string
   thumbnailUrl: string | null
+  storageBucket: string
   duration: number | null
   createdAt: Date
   updatedAt: Date
   tags: string[]
   categories?: Array<{ id: string; name: string }> | null
   actors?: Array<{ name: string }> | string[] | null
-}) => ({
-  id: video.id,
-  title: video.title,
-  description: video.description ?? "",
-  video_url: normalizeR2Url(video.videoUrl),
-  playback_url: toPublicPlaybackUrl(video.videoUrl) ?? normalizeR2Url(video.videoUrl),
-  thumbnail_url: normalizeR2Url(video.thumbnailUrl),
-  duration: video.duration,
-  tags: mergeTags(video.tags, video.categories ?? []),
-  categories: mapCategories(video.categories),
-  actors: toActorNames(video.actors),
-  created_at: video.createdAt,
-  updated_at: video.updatedAt,
-})
+}) => {
+  const bucket = parseStorageBucket(video.storageBucket)
+  return {
+    id: video.id,
+    title: video.title,
+    description: video.description ?? "",
+    video_url: normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl,
+    playback_url:
+      toPublicPlaybackUrl(video.videoUrl, bucket) ?? normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl,
+    thumbnail_url: normalizeR2Url(video.thumbnailUrl, bucket),
+    duration: video.duration,
+    tags: mergeTags(video.tags, video.categories ?? []),
+    categories: mapCategories(video.categories),
+    actors: toActorNames(video.actors),
+    created_at: video.createdAt,
+    updated_at: video.updatedAt,
+  }
+}
 
 // POST - Create new video
 export async function POST(request: NextRequest) {
@@ -54,6 +60,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const validatedData = createVideoSchema.parse(body)
+    const storageBucket = parseStorageBucket(validatedData.storageBucket)
 
     // Create video with relations
     const tags = normalizeTags(validatedData.tags)
@@ -100,9 +107,13 @@ export async function POST(request: NextRequest) {
       data: {
         title: validatedData.title,
         description: validatedData.description,
+        movieCode: validatedData.movieCode ?? undefined,
+        studio: validatedData.studio ?? undefined,
+        releaseDate: validatedData.releaseDate ?? undefined,
         tags,
         videoUrl: validatedData.videoUrl,
         thumbnailUrl: validatedData.thumbnailUrl ?? undefined,
+        storageBucket,
         duration: validatedData.duration,
         fileSize: validatedData.fileSize,
         mimeType: validatedData.mimeType,
@@ -157,9 +168,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    enqueueVideoTranscode(video.id, video.videoUrl, video.mimeType)
+    enqueueVideoTranscode(video.id, video.videoUrl, video.mimeType, storageBucket)
     if (!shouldTranscode && !validatedData.thumbnailUrl) {
-      enqueueVideoThumbnail(video.id, video.videoUrl, video.thumbnailUrl)
+      enqueueVideoThumbnail(video.id, video.videoUrl, video.thumbnailUrl, storageBucket)
     }
 
     const responseVideo = {
@@ -240,6 +251,10 @@ export async function GET(request: NextRequest) {
       ]
     }
 
+    if (validatedQuery.storageBucket) {
+      where.storageBucket = validatedQuery.storageBucket
+    }
+
     // Filter by category
     if (validatedQuery.categoryId) {
       where.categories = { some: { id: validatedQuery.categoryId } }
@@ -309,11 +324,14 @@ export async function GET(request: NextRequest) {
 
     const normalizedVideos = await Promise.all(
       videos.map(async (video) => {
-        const resolvedVideoUrl = isPluginRequest ? await getSignedPlaybackUrl(video.videoUrl) : null
+        const bucket = parseStorageBucket(video.storageBucket)
+        const resolvedVideoUrl = isPluginRequest
+          ? await getSignedPlaybackUrl(video.videoUrl, 3600, bucket)
+          : null
         return {
           ...video,
-          videoUrl: resolvedVideoUrl ?? normalizeR2Url(video.videoUrl) ?? video.videoUrl,
-          thumbnailUrl: normalizeR2Url(video.thumbnailUrl),
+          videoUrl: resolvedVideoUrl ?? normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl,
+          thumbnailUrl: normalizeR2Url(video.thumbnailUrl, bucket),
         }
       }),
     )

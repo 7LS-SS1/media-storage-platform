@@ -6,6 +6,7 @@ import os from "os"
 import path from "path"
 import { prisma } from "@/lib/prisma"
 import { extractR2Key, generateUploadKey, getPublicR2Url, getSignedR2Url, uploadFileToR2 } from "@/lib/r2"
+import { DEFAULT_STORAGE_BUCKET, type StorageBucket } from "@/lib/storage-bucket"
 import { generateThumbnailFromLocalFile } from "@/lib/video-thumbnail"
 
 const FFMPEG_PATH = process.env.FFMPEG_PATH || "ffmpeg"
@@ -115,13 +116,17 @@ const cleanupFiles = async (...paths: string[]) => {
   )
 }
 
-const transcodeVideoToMp4 = async (videoId: string, videoUrl: string) => {
-  const sourceKey = extractR2Key(videoUrl)
+const transcodeVideoToMp4 = async (
+  videoId: string,
+  videoUrl: string,
+  storageBucket: StorageBucket = DEFAULT_STORAGE_BUCKET,
+) => {
+  const sourceKey = extractR2Key(videoUrl, storageBucket)
   if (!sourceKey) {
     throw new Error("Unable to resolve source key for transcoding")
   }
 
-  const signedUrl = await getSignedR2Url(sourceKey)
+  const signedUrl = await getSignedR2Url(sourceKey, 3600, storageBucket)
   const tempBase = `transcode-${videoId}-${Date.now()}`
   const inputExt = path.extname(sourceKey) || ".ts"
   const inputPath = path.join(os.tmpdir(), `${tempBase}${inputExt}`)
@@ -156,11 +161,11 @@ const transcodeVideoToMp4 = async (videoId: string, videoUrl: string) => {
 
     let targetKey = sourceKey.replace(/\.ts$/i, ".mp4")
     if (targetKey === sourceKey) {
-      targetKey = generateUploadKey(`${videoId}.mp4`, "video")
+      targetKey = generateUploadKey(`${videoId}.mp4`, "video", storageBucket)
     }
 
-    await uploadFileToR2(outputPath, targetKey, "video/mp4")
-    const mp4Url = getPublicR2Url(targetKey)
+    await uploadFileToR2(outputPath, targetKey, "video/mp4", storageBucket)
+    const mp4Url = getPublicR2Url(targetKey, storageBucket)
 
     await prisma.video.update({
       where: { id: videoId },
@@ -173,7 +178,7 @@ const transcodeVideoToMp4 = async (videoId: string, videoUrl: string) => {
     })
 
     try {
-      await generateThumbnailFromLocalFile(videoId, outputPath)
+      await generateThumbnailFromLocalFile(videoId, outputPath, { storageBucket })
     } catch (error) {
       console.error("Failed to generate thumbnail after transcode:", error)
     }
@@ -182,13 +187,18 @@ const transcodeVideoToMp4 = async (videoId: string, videoUrl: string) => {
   }
 }
 
-export const enqueueVideoTranscode = (videoId: string, videoUrl: string, mimeType?: string | null) => {
+export const enqueueVideoTranscode = (
+  videoId: string,
+  videoUrl: string,
+  mimeType?: string | null,
+  storageBucket: StorageBucket = DEFAULT_STORAGE_BUCKET,
+) => {
   if (!shouldTranscodeToMp4(videoUrl, mimeType)) {
     return
   }
 
   setTimeout(() => {
-    transcodeVideoToMp4(videoId, videoUrl).catch(async (error) => {
+    transcodeVideoToMp4(videoId, videoUrl, storageBucket).catch(async (error) => {
       console.error("Video transcode failed:", error)
       try {
         await prisma.video.update({
