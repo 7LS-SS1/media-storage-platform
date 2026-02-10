@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useState } from "react";
 import {
   Video,
@@ -17,7 +19,7 @@ import {
 } from "lucide-react";
 
 export default function DashboardPreview() {
-  const [copiedId, setCopiedId] = useState(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const stats = {
     totalVideos: 24,
@@ -56,7 +58,7 @@ export default function DashboardPreview() {
     },
   ];
 
-  const copyToClipboard = (text, id) => {
+  const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
