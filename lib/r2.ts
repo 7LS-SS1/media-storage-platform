@@ -1,5 +1,15 @@
 import { createReadStream } from "fs"
-import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3"
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
+} from "@aws-sdk/client-s3"
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import { DEFAULT_STORAGE_BUCKET, type StorageBucket } from "@/lib/storage-bucket"
 
@@ -309,6 +319,79 @@ export type R2Object = {
   key: string
   size?: number
   lastModified?: Date
+}
+
+export type MultipartUploadPart = {
+  ETag: string
+  PartNumber: number
+}
+
+export async function createMultipartUpload(
+  key: string,
+  contentType: string,
+  bucket: StorageBucket = DEFAULT_STORAGE_BUCKET,
+): Promise<string> {
+  const config = getR2Config(bucket)
+  const command = new CreateMultipartUploadCommand({
+    Bucket: config.bucketName,
+    Key: key,
+    ContentType: contentType,
+  })
+  const response = await getR2Client(config).send(command)
+  if (!response.UploadId) {
+    throw new Error("Failed to create multipart upload")
+  }
+  return response.UploadId
+}
+
+export async function getSignedUploadPartUrl(
+  key: string,
+  uploadId: string,
+  partNumber: number,
+  expiresIn = 900,
+  bucket: StorageBucket = DEFAULT_STORAGE_BUCKET,
+): Promise<string> {
+  const config = getR2Config(bucket)
+  const command = new UploadPartCommand({
+    Bucket: config.bucketName,
+    Key: key,
+    UploadId: uploadId,
+    PartNumber: partNumber,
+  })
+  return await getSignedUrl(getR2Client(config), command, { expiresIn })
+}
+
+export async function completeMultipartUpload(
+  key: string,
+  uploadId: string,
+  parts: MultipartUploadPart[],
+  bucket: StorageBucket = DEFAULT_STORAGE_BUCKET,
+): Promise<void> {
+  const config = getR2Config(bucket)
+  const sortedParts = [...parts].sort((a, b) => a.PartNumber - b.PartNumber)
+  const command = new CompleteMultipartUploadCommand({
+    Bucket: config.bucketName,
+    Key: key,
+    UploadId: uploadId,
+    MultipartUpload: {
+      Parts: sortedParts,
+    },
+  })
+  await getR2Client(config).send(command)
+}
+
+export async function abortMultipartUpload(
+  key: string,
+  uploadId: string,
+  bucket: StorageBucket = DEFAULT_STORAGE_BUCKET,
+): Promise<void> {
+  const config = getR2Config(bucket)
+  const command = new AbortMultipartUploadCommand({
+    Bucket: config.bucketName,
+    Key: key,
+    UploadId: uploadId,
+  })
+  await getR2Client(config).send(command)
 }
 
 export async function listR2Objects(options: {

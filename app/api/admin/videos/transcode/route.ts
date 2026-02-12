@@ -3,7 +3,7 @@ import { z } from "zod"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { isSystem } from "@/lib/roles"
-import { enqueueVideoTranscode } from "@/lib/video-transcode"
+import { enqueueVideoTranscode, transcodeVideoToMp4 } from "@/lib/video-transcode"
 import { parseStorageBucket } from "@/lib/storage-bucket"
 
 const DEFAULT_LIMIT = 200
@@ -14,6 +14,7 @@ const transcodeRequestSchema = z.object({
   since: z.string().optional(),
   ids: z.array(z.string()).optional(),
   dryRun: z.boolean().optional().default(false),
+  inline: z.boolean().optional().default(false),
 })
 
 const parseSinceDate = (value?: string) => {
@@ -73,21 +74,45 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    const results: Array<{ id: string; status: "queued" | "skipped" | "failed" | "completed"; error?: string }> = []
+
     if (!validated.dryRun) {
       for (const video of videos) {
-        enqueueVideoTranscode(
-          video.id,
-          video.videoUrl,
-          video.mimeType,
-          parseStorageBucket(video.storageBucket),
-        )
+        const bucket = parseStorageBucket(video.storageBucket)
+        if (validated.inline) {
+          try {
+            await transcodeVideoToMp4(video.id, video.videoUrl, bucket)
+            results.push({ id: video.id, status: "completed" })
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Transcode failed"
+            try {
+              await prisma.video.update({
+                where: { id: video.id },
+                data: { status: "FAILED" },
+              })
+            } catch (updateError) {
+              console.error("Failed to mark transcode as failed:", updateError)
+            }
+            results.push({ id: video.id, status: "failed", error: message })
+          }
+        } else {
+          enqueueVideoTranscode(video.id, video.videoUrl, video.mimeType, bucket)
+          results.push({ id: video.id, status: "queued" })
+        }
+      }
+    } else {
+      for (const video of videos) {
+        results.push({ id: video.id, status: "skipped" })
       }
     }
 
     return NextResponse.json({
       matched: videos.length,
-      queued: validated.dryRun ? 0 : videos.length,
+      queued: results.filter((item) => item.status === "queued").length,
+      completed: results.filter((item) => item.status === "completed").length,
+      failed: results.filter((item) => item.status === "failed").length,
       ids: videos.map((video) => video.id),
+      results,
     })
   } catch (error) {
     if (error instanceof Error) {

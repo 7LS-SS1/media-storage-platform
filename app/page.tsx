@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import {
   Video,
   Upload,
@@ -20,6 +21,16 @@ import {
 
 export default function DashboardPreview() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [apiBaseUrl, setApiBaseUrl] = useState<string>("");
+
+  React.useEffect(() => {
+    const envBase = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const base = envBase || origin;
+    if (base) {
+      setApiBaseUrl(`${base}/api/plugin`);
+    }
+  }, []);
 
   const stats = {
     totalVideos: 24,
@@ -66,28 +77,6 @@ export default function DashboardPreview() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <header className="border-b border-slate-200 bg-white sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Video className="h-5 w-5 text-blue-600" />
-            <span className="font-semibold">คลังสื่อ</span>
-          </div>
-          <nav className="flex items-center gap-1">
-            <button className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors">
-              วิดีโอทั้งหมด
-            </button>
-            <button className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors flex items-center gap-1">
-              <Settings className="h-4 w-4" />
-              ตั้งค่า
-            </button>
-            <button className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors flex items-center gap-1">
-              <FileText className="h-4 w-4" />
-              API Docs
-            </button>
-          </nav>
-        </div>
-      </header>
 
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
         {/* Welcome + Quick Upload */}
@@ -202,15 +191,13 @@ export default function DashboardPreview() {
                 🔗 API Base URL สำหรับ WordPress Plugin
               </p>
               <code className="text-sm bg-white px-3 py-1.5 rounded-lg border border-blue-200 inline-block text-slate-700 font-mono">
-                https://api.media.example.com/v1
+                {apiBaseUrl || "/api/plugin"}
               </code>
             </div>
             <div className="flex gap-2">
               <button
                 className="border border-slate-200 bg-white hover:bg-slate-50 px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5 transition-colors"
-                onClick={() =>
-                  copyToClipboard("https://api.media.example.com/v1", "api")
-                }
+                onClick={() => copyToClipboard(apiBaseUrl || "/api/plugin", "api")}
               >
                 {copiedId === "api" ? (
                   <Check className="h-4 w-4 text-green-500" />
@@ -219,10 +206,13 @@ export default function DashboardPreview() {
                 )}
                 {copiedId === "api" ? "คัดลอกแล้ว" : "คัดลอก"}
               </button>
-              <button className="border border-slate-200 bg-white hover:bg-slate-50 px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5 transition-colors">
+              <Link
+                href="/api-docs"
+                className="border border-slate-200 bg-white hover:bg-slate-50 px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5 transition-colors"
+              >
                 <ExternalLink className="h-4 w-4 text-slate-500" />
                 API Docs
-              </button>
+              </Link>
             </div>
           </div>
         </div>

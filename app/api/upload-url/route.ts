@@ -2,10 +2,28 @@ import { type NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { getUserFromRequest } from "@/lib/auth"
 import { canManageVideos } from "@/lib/roles"
-import { generateUploadKey, getPublicR2Url, getSignedUploadUrl } from "@/lib/r2"
+import {
+  generateUploadKey,
+  getPublicR2Url,
+  getSignedUploadUrl,
+  createMultipartUpload,
+} from "@/lib/r2"
 
-const MAX_FILE_SIZE = 5000 * 1024 * 1024 // 5000MB
-const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime", "video/x-msvideo", "video/mp2t"]
+const MAX_FILE_SIZE = 20 * 1024 * 1024 * 1024 // 20GB
+const MULTIPART_THRESHOLD = 5 * 1024 * 1024 * 1024 // 5GB (S3 single PUT limit)
+const MIN_PART_SIZE = 5 * 1024 * 1024 // 5MB
+const DEFAULT_PART_SIZE = 100 * 1024 * 1024 // 100MB
+const MAX_PARTS = 10000
+
+const ALLOWED_VIDEO_TYPES = [
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "video/x-msvideo",
+  "video/mp2t",
+  "video/ts",
+  "video/m2ts",
+]
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"]
 
 const uploadUrlSchema = z.object({
@@ -54,10 +72,30 @@ export async function POST(request: NextRequest) {
     }
 
     const key = generateUploadKey(validatedData.filename, validatedData.type, validatedData.storageBucket)
-    const uploadUrl = await getSignedUploadUrl(key, uploadContentType, 900, validatedData.storageBucket)
     const publicUrl = getPublicR2Url(key, validatedData.storageBucket)
+    const shouldUseMultipart =
+      validatedData.type === "video" && validatedData.size > MULTIPART_THRESHOLD
+
+    if (shouldUseMultipart) {
+      const partSize = Math.max(DEFAULT_PART_SIZE, Math.ceil(validatedData.size / MAX_PARTS))
+      const normalizedPartSize = Math.max(MIN_PART_SIZE, partSize)
+      const uploadId = await createMultipartUpload(key, uploadContentType, validatedData.storageBucket)
+
+      return NextResponse.json({
+        multipart: true,
+        uploadId,
+        key,
+        partSize: normalizedPartSize,
+        publicUrl,
+        storageBucket: validatedData.storageBucket,
+        contentType: uploadContentType,
+      })
+    }
+
+    const uploadUrl = await getSignedUploadUrl(key, uploadContentType, 900, validatedData.storageBucket)
 
     return NextResponse.json({
+      multipart: false,
       uploadUrl,
       publicUrl,
       key,

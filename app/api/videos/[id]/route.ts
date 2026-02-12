@@ -101,12 +101,6 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
       video.transcodeProgress = 100
     }
 
-    // Increment view count
-    await prisma.video.update({
-      where: { id: params.id },
-      data: { views: { increment: 1 } },
-    })
-
     const userAgent = request.headers.get("user-agent") ?? ""
     const isPluginRequest = Boolean(request.headers.get("authorization")) || userAgent.includes("7LS-Video-Publisher")
     const resolvedVideoUrl = await getSignedPlaybackUrl(video.videoUrl, 3600, bucket)
@@ -114,6 +108,7 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     const normalizedVideo = {
       ...video,
       actors: actorNames,
+      fileSize: video.fileSize === null || video.fileSize === undefined ? null : Number(video.fileSize),
       videoUrl: resolvedVideoUrl ?? normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl,
       thumbnailUrl: normalizeR2Url(video.thumbnailUrl, bucket),
     }
@@ -171,6 +166,17 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
       validatedData.movieCode !== undefined ||
       validatedData.studio !== undefined ||
       validatedData.releaseDate !== undefined
+
+    if (validatedData.studio) {
+      const studioName = validatedData.studio.trim()
+      if (studioName) {
+        await prisma.studio.upsert({
+          where: { name: studioName },
+          update: {},
+          create: { name: studioName },
+        })
+      }
+    }
 
     // Update video
     const nextCategoryIds =
@@ -309,6 +315,10 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
       message: "Video updated successfully",
       video: {
         ...updatedVideo,
+        fileSize:
+          updatedVideo.fileSize === null || updatedVideo.fileSize === undefined
+            ? null
+            : Number(updatedVideo.fileSize),
         actors: toActorNames(updatedVideo.actors),
       },
     })

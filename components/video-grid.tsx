@@ -30,7 +30,17 @@ export function VideoGrid() {
       setLoading(true)
       try {
         const params = new URLSearchParams(searchParams.toString())
-        const response = await fetch(`/api/videos?${params}`)
+        const storageBucket = params.get("storageBucket")
+        let endpoint = "/api/videos"
+        if (storageBucket === "jav") {
+          endpoint = "/api/av/videos"
+          params.delete("storageBucket")
+        } else if (storageBucket === "media") {
+          endpoint = "/api/media/videos"
+          params.delete("storageBucket")
+        }
+        const query = params.toString()
+        const response = await fetch(query ? `${endpoint}?${query}` : endpoint)
         if (response.ok) {
           const data = await response.json()
           setVideos(data.videos)

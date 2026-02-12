@@ -83,7 +83,7 @@ model Video {
   videoUrl     String          @map("video_url") // R2 URL
   thumbnailUrl String?         @map("thumbnail_url") // R2 URL
   duration     Int?            // in seconds
-  fileSize     Int?            @map("file_size") // in bytes
+  fileSize     BigInt?         @map("file_size") // in bytes
   mimeType     String?         @map("mime_type")
   storageBucket String         @default("media") @map("storage_bucket")
   visibility   VideoVisibility @default(PUBLIC)
@@ -101,12 +101,27 @@ model Video {
   createdBy     User            @relation(fields: [createdById], references: [id], onDelete: Cascade)
   allowedDomains VideoAllowedDomain[]
   actors        Actor[]
+  viewsLog      VideoView[]
 
   @@index([createdById])
   @@index([status])
   @@index([visibility])
   @@index([storageBucket])
   @@map("videos")
+}
+
+model VideoView {
+  id         String   @id @default(cuid())
+  videoId    String   @map("video_id")
+  viewerKey  String   @map("viewer_key")
+  viewBucket String   @map("view_bucket")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, viewerKey, viewBucket])
+  @@index([videoId, createdAt])
+  @@map("video_views")
 }
 
 // Actor Model

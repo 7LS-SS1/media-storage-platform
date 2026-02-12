@@ -70,6 +70,17 @@ export async function POST(request: NextRequest) {
     )
     const allowedDomainIds = normalizeIdList(validatedData.allowedDomainIds)
 
+    if (validatedData.studio) {
+      const studioName = validatedData.studio.trim()
+      if (studioName) {
+        await prisma.studio.upsert({
+          where: { name: studioName },
+          update: {},
+          create: { name: studioName },
+        })
+      }
+    }
+
     if (categoryIds.length > 0) {
       const categories = await prisma.category.findMany({
         where: { id: { in: categoryIds } },
@@ -115,7 +126,7 @@ export async function POST(request: NextRequest) {
         thumbnailUrl: validatedData.thumbnailUrl ?? undefined,
         storageBucket,
         duration: validatedData.duration,
-        fileSize: validatedData.fileSize,
+        fileSize: validatedData.fileSize === undefined ? undefined : BigInt(validatedData.fileSize),
         mimeType: validatedData.mimeType,
         visibility: validatedData.visibility,
         status: shouldTranscode ? "PROCESSING" : "READY",
@@ -175,6 +186,7 @@ export async function POST(request: NextRequest) {
 
     const responseVideo = {
       ...video,
+      fileSize: video.fileSize === null || video.fileSize === undefined ? null : Number(video.fileSize),
       actors: toActorNames(video.actors),
     }
 
@@ -231,51 +243,50 @@ export async function GET(request: NextRequest) {
       userAgent.includes("7LS-Video-Publisher")
 
     // Build where clause
-    const where: any = {
-      status: "READY",
-    }
-    if (isPluginRequest) {
-      const mp4Filter = { OR: [{ mimeType: "video/mp4" }, { videoUrl: { endsWith: ".mp4" } }] }
-      if (Array.isArray(where.AND)) {
-        where.AND.push(mp4Filter)
-      } else {
-        where.AND = [mp4Filter]
-      }
-    }
+    const filters: any[] = []
 
     // Search by title or description
     if (validatedQuery.search) {
-      where.OR = [
-        { title: { contains: validatedQuery.search, mode: "insensitive" } },
-        { description: { contains: validatedQuery.search, mode: "insensitive" } },
-      ]
+      filters.push({
+        OR: [
+          { title: { contains: validatedQuery.search, mode: "insensitive" } },
+          { description: { contains: validatedQuery.search, mode: "insensitive" } },
+        ],
+      })
     }
 
     if (validatedQuery.storageBucket) {
-      where.storageBucket = validatedQuery.storageBucket
+      filters.push({ storageBucket: validatedQuery.storageBucket })
     }
 
     // Filter by category
     if (validatedQuery.categoryId) {
-      where.categories = { some: { id: validatedQuery.categoryId } }
+      filters.push({ categories: { some: { id: validatedQuery.categoryId } } })
     }
 
     // Filter by visibility
     if (validatedQuery.visibility) {
-      where.visibility = validatedQuery.visibility
-    }
-
-    // Non-admin users can only see public videos and their own
-    if (!canViewAllVideos(user.role)) {
-      where.OR = [{ visibility: "PUBLIC" }, { createdById: user.userId }]
+      filters.push({ visibility: validatedQuery.visibility })
     }
 
     if (validatedQuery.since) {
       const sinceDate = parseSinceDate(validatedQuery.since)
       if (sinceDate) {
-        where.updatedAt = { gt: sinceDate }
+        filters.push({ updatedAt: { gt: sinceDate } })
       }
     }
+
+    if (isPluginRequest) {
+      filters.push({ status: "READY" })
+      filters.push({ OR: [{ mimeType: "video/mp4" }, { videoUrl: { endsWith: ".mp4" } }] })
+    } else if (!canViewAllVideos(user.role)) {
+      // Non-admin users can see their own videos (any status) and public READY videos.
+      filters.push({
+        OR: [{ createdById: user.userId }, { visibility: "PUBLIC", status: "READY" }],
+      })
+    }
+
+    const where = filters.length > 0 ? { AND: filters } : {}
 
     // Sorting
     const orderBy: any = {}
@@ -330,6 +341,7 @@ export async function GET(request: NextRequest) {
           : null
         return {
           ...video,
+          fileSize: video.fileSize === null || video.fileSize === undefined ? null : Number(video.fileSize),
           videoUrl: resolvedVideoUrl ?? normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl,
           thumbnailUrl: normalizeR2Url(video.thumbnailUrl, bucket),
         }

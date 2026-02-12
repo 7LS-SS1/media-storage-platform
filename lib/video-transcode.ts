@@ -116,7 +116,7 @@ const cleanupFiles = async (...paths: string[]) => {
   )
 }
 
-const transcodeVideoToMp4 = async (
+export const transcodeVideoToMp4 = async (
   videoId: string,
   videoUrl: string,
   storageBucket: StorageBucket = DEFAULT_STORAGE_BUCKET,

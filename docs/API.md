@@ -132,6 +132,18 @@ List videos with filters.
 - \`storageBucket\`: "media" | "jav"
 - \`sort\`: newest | oldest | popular
 
+### POST /api/media/videos
+Create new **คลิปไทย** video entry (forces `storageBucket = "media"`).
+
+### GET /api/media/videos
+List **คลิปไทย** videos.
+
+### POST /api/av/videos
+Create new **หนัง AV** video entry (forces `storageBucket = "jav"`).
+
+### GET /api/av/videos
+List **หนัง AV** videos.
+
 ### GET /api/videos/:id
 Get video details.
 

@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import { canManageDomains, canManageTokens, canManageUsers, canManageVideos } from "@/lib/roles"
-import { Globe, KeyRound, Menu, UploadCloud, UserRound, Video } from "lucide-react"
+import { Globe, KeyRound, Menu, Plug, UploadCloud, UserRound, Video } from "lucide-react"
 
 type NavUser = {
   id: string
@@ -85,6 +85,7 @@ export function Navigation() {
 
   const navLinks = [
     { href: "/videos", label: "Videos" },
+    { href: "/plugin", label: "Plugin" },
     ...(user && canManageVideos(user.role) ? [{ href: "/videos/upload", label: "Upload" }] : []),
     ...(user && canManageUsers(user.role)
       ? [{ href: "/admin/users", label: "Users" }]
@@ -216,6 +217,12 @@ export function Navigation() {
                       <Link href="/videos">
                         <Video className="h-4 w-4" />
                         Videos
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href="/plugin">
+                        <Plug className="h-4 w-4" />
+                        Plugin
                       </Link>
                     </DropdownMenuItem>
                     {canManageVideos(user.role) && (

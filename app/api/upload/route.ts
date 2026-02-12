@@ -3,8 +3,16 @@ import { getUserFromRequest } from "@/lib/auth"
 import { canManageVideos } from "@/lib/roles"
 import { generateUploadKey, uploadToR2 } from "@/lib/r2"
 
-const MAX_FILE_SIZE = 5000 * 1024 * 1024 // 500MB
-const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime", "video/x-msvideo", "video/mp2t"]
+const MAX_FILE_SIZE = 20 * 1024 * 1024 * 1024 // 20GB
+const ALLOWED_VIDEO_TYPES = [
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "video/x-msvideo",
+  "video/mp2t",
+  "video/ts",
+  "video/m2ts",
+]
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"]
 
 export async function POST(request: NextRequest) {

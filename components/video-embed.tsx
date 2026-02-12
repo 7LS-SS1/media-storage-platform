@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AlertCircle, Lock } from "lucide-react"
 import { VideoControls } from "@/components/video-controls"
 import { useVideoControls } from "@/hooks/use-video-controls"
@@ -24,6 +24,7 @@ export function VideoEmbed({ videoId }: VideoEmbedProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const playerRef = useRef<any | null>(null)
+  const hasTrackedRef = useRef(false)
   const videoUrl = video?.videoUrl ?? null
   const videoType = useMemo(() => {
     if (!videoUrl) return "video/mp4"
@@ -40,6 +41,10 @@ export function VideoEmbed({ videoId }: VideoEmbedProps) {
     return cleanUrl.endsWith(".ts")
   }, [videoUrl])
   const controls = useVideoControls({ videoRef, containerRef, sourceUrl: videoUrl })
+
+  useEffect(() => {
+    hasTrackedRef.current = false
+  }, [videoId])
 
   useEffect(() => {
     async function fetchVideo() {
@@ -61,6 +66,21 @@ export function VideoEmbed({ videoId }: VideoEmbedProps) {
       }
     }
     fetchVideo()
+  }, [videoId])
+
+  const trackView = useCallback(async () => {
+    if (hasTrackedRef.current) return
+    hasTrackedRef.current = true
+    try {
+      await fetch(`/api/videos/${videoId}/view`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: "embed" }),
+      })
+    } catch (err) {
+      console.error("Failed to track view:", err)
+    }
   }, [videoId])
 
   useEffect(() => {
@@ -154,7 +174,13 @@ export function VideoEmbed({ videoId }: VideoEmbedProps) {
   return (
     <div className="w-full h-screen">
       <div ref={containerRef} className="relative h-full w-full bg-black">
-        <video ref={videoRef} autoPlay className="h-full w-full bg-black object-contain" title={video.title}>
+        <video
+          ref={videoRef}
+          autoPlay
+          className="h-full w-full bg-black object-contain"
+          title={video.title}
+          onPlay={trackView}
+        >
           {!isTsVideo && <source src={video.videoUrl} type={videoType} />}
           Your browser does not support the video tag.
         </video>

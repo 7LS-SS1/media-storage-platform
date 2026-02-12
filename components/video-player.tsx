@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { VideoControls } from "@/components/video-controls"
 import { useVideoControls } from "@/hooks/use-video-controls"
@@ -25,6 +25,7 @@ export function VideoPlayer({ videoId }: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const playerRef = useRef<any | null>(null)
+  const hasTrackedRef = useRef(false)
   const videoType = useMemo(() => {
     if (!videoUrl) return "video/mp4"
     const cleanUrl = videoUrl.split("?")[0].toLowerCase()
@@ -40,6 +41,10 @@ export function VideoPlayer({ videoId }: VideoPlayerProps) {
     return cleanUrl.endsWith(".ts")
   }, [videoUrl])
   const controls = useVideoControls({ videoRef, containerRef, sourceUrl: videoUrl })
+
+  useEffect(() => {
+    hasTrackedRef.current = false
+  }, [videoId])
 
   useEffect(() => {
     let isMounted = true
@@ -95,6 +100,21 @@ export function VideoPlayer({ videoId }: VideoPlayerProps) {
     fetchVideo()
     return () => {
       isMounted = false
+    }
+  }, [videoId])
+
+  const trackView = useCallback(async () => {
+    if (hasTrackedRef.current) return
+    hasTrackedRef.current = true
+    try {
+      await fetch(`/api/videos/${videoId}/view`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: "player" }),
+      })
+    } catch (error) {
+      console.error("Failed to track view:", error)
     }
   }, [videoId])
 
@@ -161,10 +181,10 @@ export function VideoPlayer({ videoId }: VideoPlayerProps) {
     )
   }
 
-  if (status && status !== "READY") {
+  if (status === "FAILED") {
     return (
       <Card className="aspect-video bg-muted flex items-center justify-center">
-        <p className="text-muted-foreground">Video is not available</p>
+        <p className="text-muted-foreground">Video processing failed</p>
       </Card>
     )
   }
@@ -180,7 +200,18 @@ export function VideoPlayer({ videoId }: VideoPlayerProps) {
   return (
     <Card className="overflow-hidden">
       <div ref={containerRef} className="relative bg-black">
-        <video ref={videoRef} className="w-full aspect-video bg-black" playsInline preload="metadata">
+        {status === "PROCESSING" && (
+          <div className="absolute left-3 top-3 z-10 rounded-full bg-black/70 px-3 py-1 text-xs text-white">
+            Processing
+          </div>
+        )}
+        <video
+          ref={videoRef}
+          className="w-full aspect-video bg-black"
+          playsInline
+          preload="metadata"
+          onPlay={trackView}
+        >
           {!isTsVideo && <source src={videoUrl} type={videoType} />}
           Your browser does not support the video tag.
         </video>

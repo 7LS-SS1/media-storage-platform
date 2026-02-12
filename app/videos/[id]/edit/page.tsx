@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { ActorSelect } from "@/components/actor-select"
+import { StudioSelect } from "@/components/studio-select"
 import { AV_GENRES } from "@/lib/av-genres"
 import { STANDARD_TAGS } from "@/lib/standard-tags"
 import { TAG_LIMIT } from "@/lib/tag-constraints"
@@ -27,11 +28,6 @@ interface Domain {
   id: string
   domain: string
   isActive: boolean
-}
-
-interface Studio {
-  id: string
-  name: string
 }
 
 interface VideoAllowedDomain {
@@ -79,10 +75,6 @@ export default function EditVideoPage({ params }: PageProps) {
   const [movieCode, setMovieCode] = useState("")
   const [studio, setStudio] = useState("")
   const [releaseDate, setReleaseDate] = useState("")
-  const [studios, setStudios] = useState<Studio[]>([])
-  const [newStudioName, setNewStudioName] = useState("")
-  const [creatingStudio, setCreatingStudio] = useState(false)
-  const [studioError, setStudioError] = useState<string | null>(null)
   const [currentThumbnailUrl, setCurrentThumbnailUrl] = useState<string | null>(null)
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null)
   const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | null>(null)
@@ -95,8 +87,6 @@ export default function EditVideoPage({ params }: PageProps) {
   const [uploadProgress, setUploadProgress] = useState(0)
 
   const normalizedTags = useMemo(() => new Set(tags.map((tag) => tag.toLowerCase())), [tags])
-  const studioNames = useMemo(() => studios.map((item) => item.name), [studios])
-  const hasStudioOption = studio ? studioNames.includes(studio) : true
   const isAv = storageBucket === "jav"
   const tagOptions = isAv ? AV_GENRES : STANDARD_TAGS
   const tagLabel = isAv ? "ประเภทหนัง" : "แท็ก"
@@ -113,22 +103,6 @@ export default function EditVideoPage({ params }: PageProps) {
       setTagError(null)
     }
   }, [tagError, tags.length])
-
-  useEffect(() => {
-    async function fetchStudios() {
-      try {
-        const response = await fetch("/api/studios")
-        if (response.ok) {
-          const data = await response.json()
-          setStudios(data.studios)
-        }
-      } catch (error) {
-        console.error("Failed to fetch studios:", error)
-      }
-    }
-
-    fetchStudios()
-  }, [])
 
   useEffect(() => {
     if (!thumbnailFile) {
@@ -392,71 +366,6 @@ export default function EditVideoPage({ params }: PageProps) {
     }
   }
 
-  const handleCreateStudio = async () => {
-    const name = newStudioName.trim()
-    if (!name) {
-      setStudioError("กรุณากรอกชื่อค่ายหนัง")
-      return
-    }
-
-    setCreatingStudio(true)
-    setStudioError(null)
-
-    try {
-      const response = await fetch("/api/studios", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ name }),
-      })
-
-      const data = await response.json()
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to create studio")
-      }
-
-      setStudios((current) => {
-        const next = [...current, data.studio]
-        next.sort((a, b) => a.name.localeCompare(b.name))
-        return next
-      })
-      setStudio(data.studio.name)
-      setNewStudioName("")
-      toast.success("เพิ่มค่ายหนังสำเร็จ")
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to create studio"
-      setStudioError(message)
-      toast.error(message)
-    } finally {
-      setCreatingStudio(false)
-    }
-  }
-
-  const handleDeleteStudio = async (studioToDelete: Studio) => {
-    const confirmed = window.confirm(`ลบค่ายหนัง \"${studioToDelete.name}\" หรือไม่?`)
-    if (!confirmed) return
-
-    try {
-      const response = await fetch(`/api/studios/${studioToDelete.id}`, {
-        method: "DELETE",
-        credentials: "include",
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to delete studio")
-      }
-
-      setStudios((current) => current.filter((item) => item.id !== studioToDelete.id))
-      if (studio === studioToDelete.name) {
-        setStudio("")
-      }
-      toast.success("ลบค่ายหนังสำเร็จ")
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to delete studio"
-      toast.error(message)
-    }
-  }
-
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     const nextErrors: Record<string, string> = {}
@@ -494,7 +403,8 @@ export default function EditVideoPage({ params }: PageProps) {
       }
 
       setUploadStatus("Saving changes...")
-      const response = await fetch(`/api/videos/${id}`, {
+      const endpoint = storageBucket === "jav" ? `/api/av/videos/${id}` : `/api/media/videos/${id}`
+      const response = await fetch(endpoint, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -503,7 +413,7 @@ export default function EditVideoPage({ params }: PageProps) {
           description: description.trim() ? description.trim() : null,
           actors,
           tags,
-          categoryIds: !isAv ? categoryIds : undefined,
+          categoryIds,
           visibility,
           allowedDomainIds: visibility === "DOMAIN_RESTRICTED" ? allowedDomainIds : undefined,
           ...(nextThumbnailUrl !== undefined ? { thumbnailUrl: nextThumbnailUrl } : {}),
@@ -614,130 +524,48 @@ export default function EditVideoPage({ params }: PageProps) {
                         </div>
                         <div className="space-y-2">
                           <Label>ค่ายหนัง</Label>
-                          <Select
-                            value={studio || "__none__"}
-                            onValueChange={(value) => setStudio(value === "__none__" ? "" : value)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="เลือกค่ายหนัง" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__none__">ไม่ระบุ</SelectItem>
-                              {!hasStudioOption && studio && (
-                                <SelectItem value={studio}>{studio} (ไม่อยู่ในรายการ)</SelectItem>
-                              )}
-                              {studios.map((studioItem) => (
-                                <SelectItem key={studioItem.id} value={studioItem.name}>
-                                  {studioItem.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <StudioSelect value={studio} onChange={setStudio} />
                         </div>
-                      </div>
-
-                      <div className="space-y-3 rounded-md border border-dashed p-3">
-                        <div className="text-sm font-medium">จัดการค่ายหนัง</div>
-                        <div className="flex gap-2">
-                          <Input
-                            id="new-studio"
-                            placeholder="เพิ่มค่ายหนังใหม่"
-                            value={newStudioName}
-                            onChange={(event) => {
-                              setNewStudioName(event.target.value)
-                              if (studioError) setStudioError(null)
-                            }}
-                          />
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            onClick={handleCreateStudio}
-                            disabled={creatingStudio || !newStudioName.trim()}
-                          >
-                            {creatingStudio ? "กำลังเพิ่ม..." : "เพิ่ม"}
-                          </Button>
-                        </div>
-                        {studioError && <p className="text-sm text-destructive">{studioError}</p>}
-                        {studios.length === 0 ? (
-                          <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                            ยังไม่มีค่ายหนัง
-                          </div>
-                        ) : (
-                          <div className="grid gap-2 md:grid-cols-2">
-                            {studios.map((studioItem) => (
-                              <div
-                                key={studioItem.id}
-                                className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm"
-                              >
-                                <span>{studioItem.name}</span>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleDeleteStudio(studioItem)}
-                                >
-                                  ลบ
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
                       </div>
                     </>
                   )}
 
-                  {!isAv ? (
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>หมวดหมู่</Label>
-                        {categories.length === 0 ? (
-                          <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                            ยังไม่มีหมวดหมู่
-                          </div>
-                        ) : (
-                          <div className="grid gap-2 md:grid-cols-2">
-                            {categories.map((category) => (
-                              <label
-                                key={category.id}
-                                className="flex items-center gap-2 rounded-md border p-2 text-sm"
-                              >
-                                <Checkbox
-                                  checked={categoryIds.includes(category.id)}
-                                  onCheckedChange={() => toggleCategory(category.id)}
-                                />
-                                <span>{category.name}</span>
-                              </label>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>{isAv ? "หมวดหมู่หนัง" : "หมวดหมู่"}</Label>
+                      {categories.length === 0 ? (
+                        <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                          ยังไม่มีหมวดหมู่
+                        </div>
+                      ) : (
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {categories.map((category) => (
+                            <label
+                              key={category.id}
+                              className="flex items-center gap-2 rounded-md border p-2 text-sm"
+                            >
+                              <Checkbox
+                                checked={categoryIds.includes(category.id)}
+                                onCheckedChange={() => toggleCategory(category.id)}
+                              />
+                              <span>{category.name}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      {categoryIds.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {categories
+                            .filter((category) => categoryIds.includes(category.id))
+                            .map((category) => (
+                              <Badge key={category.id} variant="secondary">
+                                {category.name}
+                              </Badge>
                             ))}
-                          </div>
-                        )}
-                        {categoryIds.length > 0 && (
-                          <div className="flex flex-wrap gap-2">
-                            {categories
-                              .filter((category) => categoryIds.includes(category.id))
-                              .map((category) => (
-                                <Badge key={category.id} variant="secondary">
-                                  {category.name}
-                                </Badge>
-                              ))}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>เผยแพร่</Label>
-                        <Select value={visibility} onValueChange={(value) => setVisibility(value as Visibility)}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="การเผยแพร่" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="PUBLIC">เผยแพร่</SelectItem>
-                            <SelectItem value="PRIVATE">ส่วนตัว</SelectItem>
-                            <SelectItem value="DOMAIN_RESTRICTED">เจาะจง Domain</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
+                        </div>
+                      )}
                     </div>
-                  ) : (
+
                     <div className="space-y-2">
                       <Label>เผยแพร่</Label>
                       <Select value={visibility} onValueChange={(value) => setVisibility(value as Visibility)}>
@@ -751,7 +579,7 @@ export default function EditVideoPage({ params }: PageProps) {
                         </SelectContent>
                       </Select>
                     </div>
-                  )}
+                  </div>
 
                   <div className="space-y-2">
                     <Label>ดารา/นักแสดง</Label>
