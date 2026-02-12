@@ -26,7 +26,11 @@ export default function DashboardPreview() {
   React.useEffect(() => {
     const envBase = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const base = envBase || origin;
+    const isLocalEnv =
+      envBase?.includes("localhost") ||
+      envBase?.includes("127.0.0.1") ||
+      envBase?.includes("[::1]");
+    const base = envBase && !isLocalEnv ? envBase : origin;
     if (base) {
       setApiBaseUrl(`${base}/api/plugin`);
     }
