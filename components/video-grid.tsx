@@ -31,12 +31,16 @@ export function VideoGrid() {
       try {
         const params = new URLSearchParams(searchParams.toString())
         const storageBucket = params.get("storageBucket")
+        const normalizedBucket =
+          storageBucket === "media" || storageBucket === "jav" ? storageBucket : null
         let endpoint = "/api/videos"
-        if (storageBucket === "jav") {
+        if (normalizedBucket === "jav") {
           endpoint = "/api/av/videos"
           params.delete("storageBucket")
-        } else if (storageBucket === "media") {
+        } else if (normalizedBucket === "media") {
           endpoint = "/api/media/videos"
+          params.delete("storageBucket")
+        } else if (storageBucket) {
           params.delete("storageBucket")
         }
         const query = params.toString()

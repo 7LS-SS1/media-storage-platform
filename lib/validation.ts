@@ -67,7 +67,10 @@ export const videoQuerySchema = z.object({
   search: z.string().optional(),
   categoryId: z.string().optional(),
   visibility: z.enum(["PUBLIC", "PRIVATE", "DOMAIN_RESTRICTED"]).optional(),
-  storageBucket: z.enum(["media", "jav"]).optional(),
+  storageBucket: z.preprocess(
+    (value) => (value === "all" ? undefined : value),
+    z.enum(["media", "jav"]).optional(),
+  ),
   sort: z.enum(["newest", "oldest", "popular"]).default("newest"),
 })
 
