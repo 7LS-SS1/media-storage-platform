@@ -334,6 +334,79 @@ export default function UploadVideoPage() {
     )
   }
 
+  const normalizeErrorText = (value: string) => value.replace(/\s+/g, " ").trim()
+
+  const truncateMessage = (value: string, max = 180) =>
+    value.length > max ? `${value.slice(0, max - 1)}…` : value
+
+  const extractStatusCode = (message: string) => {
+    const match = message.match(/status\s*(\d+)/i)
+    if (!match) return null
+    const code = Number(match[1])
+    return Number.isFinite(code) ? code : null
+  }
+
+  const buildXhrErrorMessage = (xhr: XMLHttpRequest, fallback: string) => {
+    if (xhr.status === 0) {
+      return `${fallback}: การเชื่อมต่อถูกบล็อก (CORS) หรือเน็ตหลุด`
+    }
+    const responseText = normalizeErrorText(xhr.responseText || "")
+    if (responseText) {
+      return `${fallback} (status ${xhr.status}): ${truncateMessage(responseText)}`
+    }
+    return `${fallback} (status ${xhr.status})`
+  }
+
+  const formatUploadError = (error: unknown) => {
+    const raw = error instanceof Error ? error.message : ""
+    const message = normalizeErrorText(raw)
+
+    if (!message) {
+      return "อัปโหลดไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"
+    }
+
+    if (message.includes("Missing R2 configuration")) {
+      const missing = message.split(":").slice(1).join(":").trim()
+      return `ตั้งค่า R2 ไม่ครบ${missing ? ` (${missing})` : ""}`
+    }
+
+    if (message.includes("Invalid file type")) {
+      return `ชนิดไฟล์ไม่รองรับ: ${truncateMessage(message)}`
+    }
+
+    if (message.includes("File too large")) {
+      return `ไฟล์ใหญ่เกินกำหนด: ${truncateMessage(message)}`
+    }
+
+    if (message.includes("Unauthorized")) {
+      return "เซสชันหมดอายุหรือยังไม่ได้เข้าสู่ระบบ"
+    }
+
+    if (message.includes("Forbidden")) {
+      return "สิทธิ์ไม่เพียงพอสำหรับการอัปโหลด"
+    }
+
+    if (message.toLowerCase().includes("etag")) {
+      return "อัปโหลดไม่สำเร็จ: ไม่พบ ETag จาก R2"
+    }
+
+    const statusCode = extractStatusCode(message)
+    if (statusCode === 0) {
+      return "อัปโหลดไม่สำเร็จ: ถูกบล็อกโดย CORS หรือเน็ตหลุด"
+    }
+    if (statusCode === 403) {
+      return "อัปโหลดไม่สำเร็จ: ลิงก์อัปโหลดหมดอายุหรือสิทธิ์ไม่ถูกต้อง (403)"
+    }
+    if (statusCode === 413) {
+      return "อัปโหลดไม่สำเร็จ: ไฟล์ใหญ่เกินข้อจำกัดของเซิร์ฟเวอร์ (413)"
+    }
+    if (statusCode === 429) {
+      return "อัปโหลดไม่สำเร็จ: คำขอมากเกินไป กรุณารอสักครู่ (429)"
+    }
+
+    return truncateMessage(message)
+  }
+
   const uploadPart = (
     uploadUrl: string,
     blob: Blob,
@@ -355,10 +428,10 @@ export default function UploadVideoPage() {
           }
           resolve(etag.replace(/"/g, ""))
         } else {
-          reject(new Error("Upload failed"))
+          reject(new Error(buildXhrErrorMessage(xhr, "อัปโหลดส่วนย่อยไม่สำเร็จ")))
         }
       }
-      xhr.onerror = () => reject(new Error("Upload failed"))
+      xhr.onerror = () => reject(new Error(buildXhrErrorMessage(xhr, "อัปโหลดส่วนย่อยไม่สำเร็จ")))
       xhr.send(blob)
     })
 
@@ -484,10 +557,10 @@ export default function UploadVideoPage() {
         if (xhr.status >= 200 && xhr.status < 300) {
           resolve({ url: uploadInfo.publicUrl, size: file.size, type: uploadInfo.contentType })
         } else {
-          reject(new Error("Upload failed"))
+          reject(new Error(buildXhrErrorMessage(xhr, "อัปโหลดไฟล์ไม่สำเร็จ")))
         }
       }
-      xhr.onerror = () => reject(new Error("Upload failed"))
+      xhr.onerror = () => reject(new Error(buildXhrErrorMessage(xhr, "อัปโหลดไฟล์ไม่สำเร็จ")))
       xhr.send(file)
     })
   }
@@ -580,7 +653,8 @@ export default function UploadVideoPage() {
       router.push(`/videos/${result.video.id}`)
       router.refresh()
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Upload failed"
+      const message = formatUploadError(error)
+      setUploadStatus(message)
       toast.error(message)
     } finally {
       setLoading(false)
