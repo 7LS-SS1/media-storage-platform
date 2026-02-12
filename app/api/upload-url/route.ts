@@ -105,6 +105,19 @@ export async function POST(request: NextRequest) {
       contentType: uploadContentType,
     })
   } catch (error) {
+    console.error("Upload URL error:", error)
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        {
+          error: "Invalid request payload",
+          issues: error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        },
+        { status: 400 },
+      )
+    }
     if (error instanceof Error) {
       return NextResponse.json({ error: error.message }, { status: 400 })
     }

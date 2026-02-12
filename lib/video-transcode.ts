@@ -10,6 +10,7 @@ import { DEFAULT_STORAGE_BUCKET, type StorageBucket } from "@/lib/storage-bucket
 import { generateThumbnailFromLocalFile } from "@/lib/video-thumbnail"
 
 const FFMPEG_PATH = process.env.FFMPEG_PATH || "ffmpeg"
+const getTempDir = () => process.env.TRANSCODE_TMP_DIR || os.tmpdir()
 
 export const shouldTranscodeToMp4 = (videoUrl: string, mimeType?: string | null) => {
   if (!videoUrl) return false
@@ -129,8 +130,9 @@ export const transcodeVideoToMp4 = async (
   const signedUrl = await getSignedR2Url(sourceKey, 3600, storageBucket)
   const tempBase = `transcode-${videoId}-${Date.now()}`
   const inputExt = path.extname(sourceKey) || ".ts"
-  const inputPath = path.join(os.tmpdir(), `${tempBase}${inputExt}`)
-  const outputPath = path.join(os.tmpdir(), `${tempBase}.mp4`)
+  const tmpDir = getTempDir()
+  const inputPath = path.join(tmpDir, `${tempBase}${inputExt}`)
+  const outputPath = path.join(tmpDir, `${tempBase}.mp4`)
 
   let lastPersistedProgress = -1
   const persistProgress = (progress: number) => {
@@ -148,6 +150,7 @@ export const transcodeVideoToMp4 = async (
   }
 
   try {
+    await fs.mkdir(tmpDir, { recursive: true })
     await prisma.video.update({
       where: { id: videoId },
       data: {
@@ -194,6 +197,22 @@ export const enqueueVideoTranscode = (
   storageBucket: StorageBucket = DEFAULT_STORAGE_BUCKET,
 ) => {
   if (!shouldTranscodeToMp4(videoUrl, mimeType)) {
+    return
+  }
+
+  const mode = process.env.TRANSCODE_MODE || "inline"
+  if (mode === "worker" || mode === "queue") {
+    void prisma.video
+      .update({
+        where: { id: videoId },
+        data: {
+          status: "PROCESSING",
+          transcodeProgress: 0,
+        },
+      })
+      .catch((error) => {
+        console.error("Failed to queue transcode:", error)
+      })
     return
   }
 

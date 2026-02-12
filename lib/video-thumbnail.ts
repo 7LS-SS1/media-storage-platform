@@ -10,6 +10,7 @@ import { DEFAULT_STORAGE_BUCKET, type StorageBucket } from "@/lib/storage-bucket
 
 const FFMPEG_PATH = process.env.FFMPEG_PATH || "ffmpeg"
 const FFPROBE_PATH = process.env.FFPROBE_PATH || "ffprobe"
+const getTempDir = () => process.env.TRANSCODE_TMP_DIR || os.tmpdir()
 const THUMBNAIL_MAX_WIDTH = 1280
 
 const downloadToFile = async (url: string, targetPath: string) => {
@@ -149,7 +150,9 @@ export const generateThumbnailFromLocalFile = async (
   if (!shouldGenerate) return null
   const storageBucket = options?.storageBucket ?? DEFAULT_STORAGE_BUCKET
 
-  const outputPath = path.join(os.tmpdir(), `thumbnail-${videoId}-${Date.now()}.jpg`)
+  const tmpDir = getTempDir()
+  await fs.mkdir(tmpDir, { recursive: true })
+  const outputPath = path.join(tmpDir, `thumbnail-${videoId}-${Date.now()}.jpg`)
   try {
     const durationSeconds = await getDurationSeconds(inputPath)
     const seekSeconds = pickThumbnailTimestamp(durationSeconds)
@@ -189,7 +192,9 @@ export const generateThumbnailFromVideoWithBucket = async (
   const signedUrl = await getSignedR2Url(sourceKey, 3600, storageBucket)
   const tempBase = `thumbnail-${videoId}-${Date.now()}`
   const inputExt = path.extname(sourceKey) || ".mp4"
-  const inputPath = path.join(os.tmpdir(), `${tempBase}${inputExt}`)
+  const tmpDir = getTempDir()
+  await fs.mkdir(tmpDir, { recursive: true })
+  const inputPath = path.join(tmpDir, `${tempBase}${inputExt}`)
 
   try {
     await downloadToFile(signedUrl, inputPath)

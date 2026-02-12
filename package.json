@@ -12,7 +12,8 @@
     "lint": "eslint .",
     "postinstall": "prisma generate",
     "start": "next start",
-    "transcode:ts": "node scripts/transcode-ts-videos.js"
+    "transcode:ts": "node scripts/transcode-ts-videos.js",
+    "transcode:worker": "node scripts/transcode-worker.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.958.0",

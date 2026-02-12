@@ -59,6 +59,21 @@ npm run db:migrate
 npm run dev
 ```
 
+## Transcode Worker (Recommended for Large Files)
+
+Serverless environments have limited `/tmp` space. For large videos, run transcoding on a VM/container with enough disk.
+
+1. Set `TRANSCODE_MODE=worker` in the app environment (Vercel/local).
+2. On a machine with ffmpeg/ffprobe installed and enough disk, run:
+
+```bash
+npm run transcode:worker
+```
+
+Optional env:
+- `TRANSCODE_TMP_DIR` - temp directory with enough space
+- `TRANSCODE_POLL_INTERVAL_MS` - polling interval (default 15000)
+
 ## API Endpoints
 
 ### Authentication

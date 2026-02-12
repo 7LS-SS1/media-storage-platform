@@ -544,8 +544,15 @@ export default function UploadVideoPage() {
           forceMultipart: forceMultipart || shouldForceMultipart,
         }),
       })
-      const uploadInfo = await uploadResponse.json()
-      if (!uploadResponse.ok) throw new Error(uploadInfo.error || "Failed to prepare upload")
+      const uploadInfo = await uploadResponse.json().catch(() => ({}))
+      if (!uploadResponse.ok) {
+        const issue =
+          Array.isArray(uploadInfo.issues) && uploadInfo.issues.length > 0
+            ? `${uploadInfo.issues[0].path ? `${uploadInfo.issues[0].path}: ` : ""}${uploadInfo.issues[0].message}`
+            : ""
+        const message = uploadInfo.error || "Failed to prepare upload"
+        throw new Error(issue ? `${message} (${issue})` : message)
+      }
       return uploadInfo
     }
 
