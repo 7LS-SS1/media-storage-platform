@@ -10,7 +10,7 @@ import {
 } from "@/lib/r2"
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024 * 1024 // 20GB
-const MULTIPART_THRESHOLD = 5 * 1024 * 1024 * 1024 // 5GB (S3 single PUT limit)
+const MULTIPART_THRESHOLD = 1 * 1024 * 1024 * 1024 // 1GB (reduce failures on large uploads)
 const MIN_PART_SIZE = 5 * 1024 * 1024 // 5MB
 const DEFAULT_PART_SIZE = 100 * 1024 * 1024 // 100MB
 const MAX_PARTS = 10000
