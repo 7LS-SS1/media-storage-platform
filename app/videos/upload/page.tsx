@@ -334,6 +334,8 @@ export default function UploadVideoPage() {
     )
   }
 
+  const MULTIPART_FORCE_THRESHOLD = 1 * 1024 * 1024 * 1024
+
   const normalizeErrorText = (value: string) => value.replace(/\s+/g, " ").trim()
 
   const truncateMessage = (value: string, max = 180) =>
@@ -526,43 +528,76 @@ export default function UploadVideoPage() {
     bucket: StorageBucket
   ) => {
     const contentType = type === "video" ? normalizeVideoContentType(file) : file.type
-    const uploadResponse = await fetch("/api/upload-url", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({
-        filename: file.name,
-        contentType,
-        size: file.size,
-        type,
-        storageBucket: bucket,
-      }),
-    })
-    const uploadInfo = await uploadResponse.json()
-    if (!uploadResponse.ok) throw new Error(uploadInfo.error || "Failed to prepare upload")
+    const shouldForceMultipart = type === "video" && file.size >= MULTIPART_FORCE_THRESHOLD
+
+    const requestUploadInfo = async (forceMultipart: boolean) => {
+      const uploadResponse = await fetch("/api/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          filename: file.name,
+          contentType,
+          size: file.size,
+          type,
+          storageBucket: bucket,
+          forceMultipart: forceMultipart || shouldForceMultipart,
+        }),
+      })
+      const uploadInfo = await uploadResponse.json()
+      if (!uploadResponse.ok) throw new Error(uploadInfo.error || "Failed to prepare upload")
+      return uploadInfo
+    }
+
+    const uploadSinglePut = (uploadInfo: {
+      uploadUrl: string
+      publicUrl: string
+      contentType: string
+    }) =>
+      new Promise<{ url: string; size: number; type: string }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open("PUT", uploadInfo.uploadUrl)
+        xhr.setRequestHeader("Content-Type", uploadInfo.contentType)
+        xhr.upload.onprogress = (event) => {
+          if (!event.lengthComputable) return
+          onProgress(Math.round((event.loaded / event.total) * 100))
+        }
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve({ url: uploadInfo.publicUrl, size: file.size, type: uploadInfo.contentType })
+          } else {
+            reject(new Error(buildXhrErrorMessage(xhr, "อัปโหลดไฟล์ไม่สำเร็จ")))
+          }
+        }
+        xhr.onerror = () => reject(new Error(buildXhrErrorMessage(xhr, "อัปโหลดไฟล์ไม่สำเร็จ")))
+        xhr.send(file)
+      })
+
+    const uploadInfo = await requestUploadInfo(false)
 
     if (uploadInfo.multipart) {
       return await uploadMultipartFile(file, uploadInfo, onProgress, bucket)
     }
 
-    return await new Promise<{ url: string; size: number; type: string }>((resolve, reject) => {
-      const xhr = new XMLHttpRequest()
-      xhr.open("PUT", uploadInfo.uploadUrl)
-      xhr.setRequestHeader("Content-Type", uploadInfo.contentType)
-      xhr.upload.onprogress = (event) => {
-        if (!event.lengthComputable) return
-        onProgress(Math.round((event.loaded / event.total) * 100))
+    try {
+      return await uploadSinglePut(uploadInfo)
+    } catch (error) {
+      const statusCode = extractStatusCode(error instanceof Error ? error.message : "")
+      const shouldRetryMultipart =
+        type === "video" &&
+        (statusCode === 0 || statusCode === 413 || statusCode === 502 || statusCode === 503)
+
+      if (!shouldRetryMultipart) {
+        throw error
       }
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve({ url: uploadInfo.publicUrl, size: file.size, type: uploadInfo.contentType })
-        } else {
-          reject(new Error(buildXhrErrorMessage(xhr, "อัปโหลดไฟล์ไม่สำเร็จ")))
-        }
+
+      onProgress(0)
+      const retryInfo = await requestUploadInfo(true)
+      if (!retryInfo.multipart) {
+        throw error
       }
-      xhr.onerror = () => reject(new Error(buildXhrErrorMessage(xhr, "อัปโหลดไฟล์ไม่สำเร็จ")))
-      xhr.send(file)
-    })
+      return await uploadMultipartFile(file, retryInfo, onProgress, bucket)
+    }
   }
 
   const validateStep = (step: number): boolean => {

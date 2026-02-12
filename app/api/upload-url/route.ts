@@ -32,6 +32,7 @@ const uploadUrlSchema = z.object({
   size: z.number().int().positive(),
   type: z.enum(["video", "thumbnail"]),
   storageBucket: z.enum(["media", "jav"]).optional().default("media"),
+  forceMultipart: z.boolean().optional().default(false),
 })
 
 export async function POST(request: NextRequest) {
@@ -74,7 +75,8 @@ export async function POST(request: NextRequest) {
     const key = generateUploadKey(validatedData.filename, validatedData.type, validatedData.storageBucket)
     const publicUrl = getPublicR2Url(key, validatedData.storageBucket)
     const shouldUseMultipart =
-      validatedData.type === "video" && validatedData.size > MULTIPART_THRESHOLD
+      validatedData.type === "video" &&
+      (validatedData.forceMultipart || validatedData.size > MULTIPART_THRESHOLD)
 
     if (shouldUseMultipart) {
       const partSize = Math.max(DEFAULT_PART_SIZE, Math.ceil(validatedData.size / MAX_PARTS))
