@@ -63,6 +63,10 @@ export const videoQuerySchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(20),
   per_page: z.coerce.number().min(1).max(100).optional(),
   since: z.string().optional(),
+  type: z.preprocess(
+    (value) => (value === "thai_clip" || value === "av_movie" ? value : undefined),
+    z.enum(["thai_clip", "av_movie"]).optional(),
+  ),
   project_id: z.string().optional(),
   search: z.string().optional(),
   categoryId: z.string().optional(),

@@ -49,7 +49,7 @@ export default function PluginPage() {
                     <Package className="h-7 w-7" />
                   </div>
                   <span className="px-3 py-1 bg-white/20 rounded-full text-sm font-medium backdrop-blur-sm">
-                    v1.1.0
+                    v1.1.1
                   </span>
                 </div>
                 <h2 className="text-2xl font-bold mb-1">Plugin WP</h2>
@@ -60,7 +60,7 @@ export default function PluginPage() {
               <div className="p-6">
                 {/* Download Button */}
                 <a
-                  href="/downloads/7ls-video-publisher-1.1.0.zip"
+                  href="/downloads/7ls-video-publisher-1.1.1.zip"
                   download
                   className="flex items-center justify-center gap-3 w-full py-4 px-6 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all duration-300 transform hover:-translate-y-0.5 mb-6"
                 >
@@ -76,7 +76,7 @@ export default function PluginPage() {
                   </div>
                   <div>
                     <p className="text-xs text-slate-500">ไฟล์ปลั๊กอิน</p>
-                    <p className="font-mono text-sm text-slate-700">7ls-video-publisher-1.1.0.zip</p>
+                    <p className="font-mono text-sm text-slate-700">7ls-video-publisher-1.1.1.zip</p>
                   </div>
                 </div>
 

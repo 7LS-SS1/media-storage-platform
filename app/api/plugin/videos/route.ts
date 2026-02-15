@@ -6,7 +6,7 @@ import { getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib
 import { toActorNames } from "@/lib/actors"
 import { mergeTags } from "@/lib/tags"
 import { markMp4VideosReady } from "@/lib/video-status"
-import { parseStorageBucket } from "@/lib/storage-bucket"
+import { parseStorageBucket, resolveStorageBucketFilter } from "@/lib/storage-bucket"
 
 const DEFAULT_PAGE = 1
 const DEFAULT_PER_PAGE = 20
@@ -91,6 +91,11 @@ export async function GET(request: NextRequest) {
     const page = parsePositiveInt(searchParams.get("page"), DEFAULT_PAGE)
     const perPage = Math.min(parsePositiveInt(searchParams.get("per_page"), DEFAULT_PER_PAGE), MAX_PER_PAGE)
     const since = parseSinceDate(searchParams.get("since"))
+    const storageBucketFilter = resolveStorageBucketFilter({
+      storageBucket: searchParams.get("storageBucket"),
+      bucket: searchParams.get("bucket"),
+      type: searchParams.get("type"),
+    })
 
     const where: Record<string, unknown> = {
       status: "READY",
@@ -103,6 +108,9 @@ export async function GET(request: NextRequest) {
 
     if (since) {
       where.updatedAt = { gt: since }
+    }
+    if (storageBucketFilter) {
+      where.storageBucket = storageBucketFilter
     }
 
     if (!canViewAllVideos(user.role)) {

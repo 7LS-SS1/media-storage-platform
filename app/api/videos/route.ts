@@ -9,7 +9,7 @@ import { createVideoSchema, normalizeIdList, videoQuerySchema } from "@/lib/vali
 import { enqueueVideoTranscode, shouldTranscodeToMp4 } from "@/lib/video-transcode"
 import { enqueueVideoThumbnail } from "@/lib/video-thumbnail"
 import { markMp4VideosReady } from "@/lib/video-status"
-import { parseStorageBucket } from "@/lib/storage-bucket"
+import { parseStorageBucket, resolveStorageBucketFilter } from "@/lib/storage-bucket"
 
 const mapCategories = (categories?: Array<{ id: string; name: string }> | null) =>
   (categories ?? []).map((category) => ({ id: category.id, name: category.name }))
@@ -255,8 +255,12 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    if (validatedQuery.storageBucket) {
-      filters.push({ storageBucket: validatedQuery.storageBucket })
+    const storageBucketFilter = resolveStorageBucketFilter({
+      storageBucket: validatedQuery.storageBucket,
+      type: validatedQuery.type,
+    })
+    if (storageBucketFilter) {
+      filters.push({ storageBucket: storageBucketFilter })
     }
 
     // Filter by category

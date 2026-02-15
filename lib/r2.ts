@@ -25,6 +25,110 @@ type R2Config = {
 let cachedClient: S3Client | null = null
 const cachedConfigs: Partial<Record<StorageBucket, R2Config>> = {}
 
+function normalizeMarker(value?: string | null): string | null {
+  if (!value) return null
+  const normalized = value.trim().replace(/^\/+/, "").replace(/\/+$/, "").toLowerCase()
+  return normalized.length > 0 ? normalized : null
+}
+
+function parseHost(value?: string | null): string | null {
+  if (!value) return null
+  const candidate = value.trim()
+  if (!candidate) return null
+  try {
+    const parsed = new URL(candidate.startsWith("//") ? `https:${candidate}` : candidate)
+    return parsed.host.toLowerCase()
+  } catch {
+    return null
+  }
+}
+
+function getBucketMarkers(bucket: StorageBucket): string[] {
+  const envMarkers =
+    bucket === "jav"
+      ? [process.env.R2_JAV_KEY_PREFIX, process.env.R2_JAV_BUCKET_NAME]
+      : [process.env.R2_KEY_PREFIX, process.env.R2_BUCKET_NAME]
+  const defaults = bucket === "jav" ? ["jav-storage"] : ["media-storage"]
+  return Array.from(
+    new Set([...envMarkers, ...defaults].map((marker) => normalizeMarker(marker)).filter(Boolean)),
+  ) as string[]
+}
+
+function findMarkerPosition(path: string, marker: string): number {
+  if (path === marker || path.startsWith(`${marker}/`)) return 0
+  const middleToken = `/${marker}/`
+  const middleIndex = path.indexOf(middleToken)
+  if (middleIndex >= 0) return middleIndex + 1
+  const tailToken = `/${marker}`
+  if (path.endsWith(tailToken)) return path.length - marker.length
+  return -1
+}
+
+function detectBucketByPath(path: string): StorageBucket | null {
+  const normalizedPath = path.trim().replace(/^\/+/, "").toLowerCase()
+  if (!normalizedPath) return null
+
+  const matchPosition = (bucket: StorageBucket) => {
+    const positions = getBucketMarkers(bucket)
+      .map((marker) => findMarkerPosition(normalizedPath, marker))
+      .filter((position) => position >= 0)
+    if (positions.length === 0) return -1
+    return Math.min(...positions)
+  }
+
+  const mediaPosition = matchPosition("media")
+  const javPosition = matchPosition("jav")
+
+  if (mediaPosition < 0 && javPosition < 0) return null
+  if (mediaPosition >= 0 && javPosition < 0) return "media"
+  if (javPosition >= 0 && mediaPosition < 0) return "jav"
+  if (mediaPosition === 0 && javPosition > 0) return "jav"
+  if (javPosition === 0 && mediaPosition > 0) return "media"
+  return mediaPosition <= javPosition ? "media" : "jav"
+}
+
+function inferBucketFromResource(resource: string | null | undefined): StorageBucket | null {
+  if (!resource) return null
+  const trimmed = resource.trim()
+  if (!trimmed) return null
+
+  if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith("//")) {
+    try {
+      const parsed = new URL(trimmed.startsWith("//") ? `https:${trimmed}` : trimmed)
+      const bucketByPath = detectBucketByPath(parsed.pathname)
+      if (bucketByPath) return bucketByPath
+
+      const host = parsed.host.toLowerCase()
+      const javHost = parseHost(process.env.R2_JAV_PUBLIC_DOMAIN)
+      const mediaHost = parseHost(process.env.R2_PUBLIC_DOMAIN)
+      if (javHost && host === javHost) return "jav"
+      if (mediaHost && host === mediaHost) return "media"
+      return null
+    } catch {
+      return detectBucketByPath(trimmed)
+    }
+  }
+
+  return detectBucketByPath(trimmed)
+}
+
+function resolveBucketFromResource(
+  resource: string | null | undefined,
+  bucket: StorageBucket = DEFAULT_STORAGE_BUCKET,
+): StorageBucket {
+  return inferBucketFromResource(resource) ?? bucket
+}
+
+function isKnownR2Host(host: string | null): boolean {
+  if (!host) return false
+  const knownHosts = [
+    parseHost(process.env.R2_PUBLIC_DOMAIN),
+    parseHost(process.env.R2_JAV_PUBLIC_DOMAIN),
+    parseHost(process.env.R2_ENDPOINT),
+  ].filter(Boolean) as string[]
+  return knownHosts.includes(host.toLowerCase())
+}
+
 function normalizeEndpoint(endpoint: string, bucketName: string): string {
   try {
     const parsed = new URL(endpoint)
@@ -134,7 +238,8 @@ export async function uploadFileToR2(
 }
 
 export function getPublicR2Url(key: string, bucket: StorageBucket = DEFAULT_STORAGE_BUCKET): string {
-  const config = getR2Config(bucket)
+  const effectiveBucket = resolveBucketFromResource(key, bucket)
+  const config = getR2Config(effectiveBucket)
   let base = `${config.endpoint}/${config.bucketName}`
   if (config.publicDomain) {
     try {
@@ -144,7 +249,7 @@ export function getPublicR2Url(key: string, bucket: StorageBucket = DEFAULT_STOR
       base = config.publicDomain.replace(/\/+$/, "")
     }
   }
-  return `${base}/${key}`
+  return `${base}/${key.replace(/^\/+/, "")}`
 }
 
 export function normalizeR2Url(
@@ -152,14 +257,24 @@ export function normalizeR2Url(
   bucket: StorageBucket = DEFAULT_STORAGE_BUCKET,
 ): string | null {
   if (!url) return url
-  const keyPrefix = getR2Config(bucket).keyPrefix
+  const effectiveBucket = resolveBucketFromResource(url, bucket)
+  const keyPrefix = getR2Config(effectiveBucket).keyPrefix
   const normalized = url.replace(/(^|\/)source\//, `$1${keyPrefix}/`)
   if (/^https?:\/\//i.test(normalized) || normalized.startsWith("//")) {
+    try {
+      const parsed = new URL(normalized.startsWith("//") ? `https:${normalized}` : normalized)
+      const key = extractR2Key(normalized, effectiveBucket)
+      if (key && (isKnownR2Host(parsed.host) || detectBucketByPath(key))) {
+        return getPublicR2Url(key, effectiveBucket)
+      }
+    } catch {
+      // Fall back to the original value when URL parsing fails.
+    }
     return normalized
   }
   const trimmed = normalized.replace(/^\/+/, "")
   try {
-    return getPublicR2Url(trimmed, bucket)
+    return getPublicR2Url(trimmed, effectiveBucket)
   } catch {
     return normalized
   }
@@ -176,6 +291,7 @@ export function toPublicPlaybackUrl(
 
 export function extractR2Key(url: string, bucket?: StorageBucket): string | null {
   if (!url) return null
+  const effectiveBucket = resolveBucketFromResource(url, bucket ?? DEFAULT_STORAGE_BUCKET)
   const withoutQuery = url.split("?")[0]?.split("#")[0] ?? ""
   const cleaned = withoutQuery.trim()
   if (!cleaned) return null
@@ -201,12 +317,10 @@ export function extractR2Key(url: string, bucket?: StorageBucket): string | null
     if (normalized) prefixes.add(normalized)
   }
 
-  if (bucket) {
-    try {
-      addPrefix(getR2Config(bucket).keyPrefix)
-    } catch {
-      // Ignore config errors and fall back to env-based prefixes.
-    }
+  try {
+    addPrefix(getR2Config(effectiveBucket).keyPrefix)
+  } catch {
+    // Ignore config errors and fall back to env-based prefixes.
   }
 
   addPrefix(process.env.R2_KEY_PREFIX)
@@ -225,7 +339,7 @@ export function extractR2Key(url: string, bucket?: StorageBucket): string | null
   }
 
   try {
-    const config = getR2Config(bucket ?? DEFAULT_STORAGE_BUCKET)
+    const config = getR2Config(effectiveBucket)
     const bucketPrefix = `${config.bucketName}/`
     if (path.startsWith(bucketPrefix)) {
       return path.slice(bucketPrefix.length)
@@ -243,13 +357,14 @@ export async function getSignedPlaybackUrl(
   bucket: StorageBucket = DEFAULT_STORAGE_BUCKET,
 ): Promise<string | null> {
   if (!url) return url
-  const key = extractR2Key(url, bucket)
-  if (!key) return normalizeR2Url(url, bucket)
+  const effectiveBucket = resolveBucketFromResource(url, bucket)
+  const key = extractR2Key(url, effectiveBucket)
+  if (!key) return normalizeR2Url(url, effectiveBucket)
 
   try {
-    return await getSignedR2Url(key, expiresIn, bucket)
+    return await getSignedR2Url(key, expiresIn, effectiveBucket)
   } catch {
-    return normalizeR2Url(url, bucket)
+    return normalizeR2Url(url, effectiveBucket)
   }
 }
 

@@ -4,7 +4,7 @@ import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { isSystem } from "@/lib/roles"
 import { extractR2Key, getPublicR2Url, listR2VideoObjects } from "@/lib/r2"
-import { parseStorageBucket } from "@/lib/storage-bucket"
+import { parseStorageBucket, resolveStorageBucketFilter } from "@/lib/storage-bucket"
 import { enqueueVideoTranscode } from "@/lib/video-transcode"
 
 const MAX_BATCH = 1000
@@ -23,14 +23,31 @@ const parseLimit = (value: unknown) => {
   return undefined
 }
 
-const buildSyncOptions = (input: { cursor?: unknown; limit?: unknown; bucket?: unknown }) => {
+const buildSyncOptions = (input: {
+  cursor?: unknown
+  limit?: unknown
+  bucket?: unknown
+  storageBucket?: unknown
+  type?: unknown
+}) => {
   const continuationToken = typeof input.cursor === "string" && input.cursor.length > 0 ? input.cursor : undefined
   const limitValue = parseLimit(input.limit)
   const maxKeys =
     typeof limitValue === "number"
       ? Math.min(Math.max(Math.floor(limitValue), 1), MAX_BATCH)
       : MAX_BATCH
-  const bucket = parseStorageBucket(typeof input.bucket === "string" ? input.bucket : undefined)
+  const bucketFilter = resolveStorageBucketFilter({
+    bucket: typeof input.bucket === "string" ? input.bucket : undefined,
+    storageBucket: typeof input.storageBucket === "string" ? input.storageBucket : undefined,
+    type: typeof input.type === "string" ? input.type : undefined,
+  })
+  const fallbackBucketValue =
+    typeof input.bucket === "string"
+      ? input.bucket
+      : typeof input.storageBucket === "string"
+        ? input.storageBucket
+        : undefined
+  const bucket = bucketFilter ?? parseStorageBucket(fallbackBucketValue)
 
   return { continuationToken, maxKeys, bucket }
 }
@@ -185,7 +202,13 @@ const handleSync = async (
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}))
-  const options = buildSyncOptions({ cursor: body.cursor, limit: body.limit, bucket: body.bucket })
+  const options = buildSyncOptions({
+    cursor: body.cursor,
+    limit: body.limit,
+    bucket: body.bucket,
+    storageBucket: body.storageBucket,
+    type: body.type,
+  })
   return await handleSync(request, options)
 }
 
@@ -195,6 +218,8 @@ export async function GET(request: NextRequest) {
     cursor: searchParams.get("cursor"),
     limit: searchParams.get("limit"),
     bucket: searchParams.get("bucket"),
+    storageBucket: searchParams.get("storageBucket"),
+    type: searchParams.get("type"),
   })
   return await handleSync(request, options)
 }
