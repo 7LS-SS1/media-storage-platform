@@ -159,7 +159,7 @@ export function VideoInfo({ videoId }: VideoInfoProps) {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: [video.id], inline: true }),
+        body: JSON.stringify({ ids: [video.id] }),
       })
 
       if (!response.ok) {
@@ -172,6 +172,7 @@ export function VideoInfo({ videoId }: VideoInfoProps) {
         const errorMessage = data?.results?.[0]?.error || "Transcode failed"
         throw new Error(errorMessage)
       }
+      toast.success("ส่งเข้าคิวแปลงไฟล์แล้ว")
 
       setTranscodePhase("refreshing")
       await fetchVideo()
@@ -205,7 +206,7 @@ export function VideoInfo({ videoId }: VideoInfoProps) {
   const progressValue = typeof video.transcodeProgress === "number" ? video.transcodeProgress : null
   const transcodeSteps = [
     { id: "request", label: "ส่งคำสั่งแปลงไฟล์" },
-    { id: "processing", label: "กำลังแปลงไฟล์เป็น MP4" },
+    { id: "processing", label: "ส่งเข้าคิวแปลงไฟล์ MP4" },
     { id: "refresh", label: "รีเฟรชข้อมูลวิดีโอ" },
   ]
   const getStepState = (step: "request" | "processing" | "refresh") => {

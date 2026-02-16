@@ -1,6 +1,4 @@
-import { createReadStream, createWriteStream, promises as fs } from "fs"
-import { Readable } from "stream"
-import { pipeline } from "stream/promises"
+import { promises as fs } from "fs"
 import { spawn } from "child_process"
 import os from "os"
 import path from "path"
@@ -31,22 +29,12 @@ const parseFfmpegTimestamp = (value: string) => {
   return hours * 3600 + minutes * 60 + seconds
 }
 
-const downloadToFile = async (url: string, targetPath: string) => {
-  const response = await fetch(url)
-  if (!response.ok || !response.body) {
-    throw new Error(`Failed to download source video (${response.status})`)
-  }
-
-  const fileStream = createWriteStream(targetPath)
-  await pipeline(Readable.fromWeb(response.body as unknown as ReadableStream), fileStream)
-}
-
-const runFfmpeg = (inputPath: string, outputPath: string, onProgress?: (progress: number) => void) =>
+const runFfmpeg = (inputSource: string, outputPath: string, onProgress?: (progress: number) => void) =>
   new Promise<void>((resolve, reject) => {
     const args = [
       "-y",
       "-i",
-      inputPath,
+      inputSource,
       "-c:v",
       "libx264",
       "-c:a",
@@ -129,9 +117,7 @@ export const transcodeVideoToMp4 = async (
 
   const signedUrl = await getSignedR2Url(sourceKey, 3600, storageBucket)
   const tempBase = `transcode-${videoId}-${Date.now()}`
-  const inputExt = path.extname(sourceKey) || ".ts"
   const tmpDir = getTempDir()
-  const inputPath = path.join(tmpDir, `${tempBase}${inputExt}`)
   const outputPath = path.join(tmpDir, `${tempBase}.mp4`)
 
   let lastPersistedProgress = -1
@@ -159,8 +145,7 @@ export const transcodeVideoToMp4 = async (
       },
     })
 
-    await downloadToFile(signedUrl, inputPath)
-    await runFfmpeg(inputPath, outputPath, persistProgress)
+    await runFfmpeg(signedUrl, outputPath, persistProgress)
 
     let targetKey = sourceKey.replace(/\.ts$/i, ".mp4")
     if (targetKey === sourceKey) {
@@ -186,7 +171,7 @@ export const transcodeVideoToMp4 = async (
       console.error("Failed to generate thumbnail after transcode:", error)
     }
   } finally {
-    await cleanupFiles(inputPath, outputPath)
+    await cleanupFiles(outputPath)
   }
 }
 
@@ -200,8 +185,17 @@ export const enqueueVideoTranscode = (
     return
   }
 
-  const mode = process.env.TRANSCODE_MODE || "inline"
-  if (mode === "worker" || mode === "queue") {
+  const configuredMode = process.env.TRANSCODE_MODE?.trim().toLowerCase()
+  const defaultMode = process.env.VERCEL ? "queue" : "inline"
+  const mode = configuredMode === "inline" || configuredMode === "worker" || configuredMode === "queue"
+    ? configuredMode
+    : defaultMode
+  const shouldQueue = mode === "worker" || mode === "queue" || (mode === "inline" && Boolean(process.env.VERCEL))
+
+  if (shouldQueue) {
+    if (mode === "inline" && process.env.VERCEL) {
+      console.warn("TRANSCODE_MODE=inline is unsafe on Vercel runtime, falling back to queue mode")
+    }
     void prisma.video
       .update({
         where: { id: videoId },

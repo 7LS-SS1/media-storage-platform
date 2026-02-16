@@ -8,6 +8,8 @@ import { parseStorageBucket } from "@/lib/storage-bucket"
 
 const DEFAULT_LIMIT = 200
 const MAX_LIMIT = 1000
+const IS_SERVERLESS_RUNTIME = Boolean(process.env.VERCEL || process.env.AWS_EXECUTION_ENV)
+const ALLOW_INLINE_TRANSCODE = process.env.ALLOW_INLINE_TRANSCODE === "true" && !IS_SERVERLESS_RUNTIME
 
 const transcodeRequestSchema = z.object({
   limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
@@ -47,6 +49,16 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => ({}))
     const validated = transcodeRequestSchema.parse(body)
+    if (validated.inline && !ALLOW_INLINE_TRANSCODE) {
+      return NextResponse.json(
+        {
+          error:
+            "Inline transcode is disabled in this environment. Queue the job and run `npm run transcode:worker` on a dedicated worker host.",
+        },
+        { status: 400 },
+      )
+    }
+
     const limit = validated.limit ?? DEFAULT_LIMIT
     const sinceDate = parseSinceDate(validated.since)
 
@@ -111,6 +123,7 @@ export async function POST(request: NextRequest) {
       queued: results.filter((item) => item.status === "queued").length,
       completed: results.filter((item) => item.status === "completed").length,
       failed: results.filter((item) => item.status === "failed").length,
+      mode: validated.inline ? "inline" : "queue",
       ids: videos.map((video) => video.id),
       results,
     })

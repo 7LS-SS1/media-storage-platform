@@ -1,10 +1,8 @@
 /* eslint-disable no-console */
 const { spawn } = require("child_process")
-const { createReadStream, createWriteStream, promises: fs } = require("fs")
+const { createReadStream, promises: fs } = require("fs")
 const os = require("os")
 const path = require("path")
-const { pipeline } = require("stream/promises")
-const { Readable } = require("stream")
 const { S3Client, PutObjectCommand, GetObjectCommand } = require("@aws-sdk/client-s3")
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner")
 const { PrismaClient } = require("@prisma/client")
@@ -179,15 +177,6 @@ const uploadFileToR2 = async (bucket, filePath, key, contentType) => {
   return getPublicR2Url(bucket, key)
 }
 
-const downloadToFile = async (url, targetPath) => {
-  const response = await fetch(url)
-  if (!response.ok || !response.body) {
-    throw new Error(`Failed to download source video (${response.status})`)
-  }
-  const fileStream = createWriteStream(targetPath)
-  await pipeline(Readable.fromWeb(response.body), fileStream)
-}
-
 const parseFfmpegTimestamp = (value) => {
   const parts = value.split(":")
   if (parts.length !== 3) return null
@@ -200,12 +189,12 @@ const parseFfmpegTimestamp = (value) => {
   return hours * 3600 + minutes * 60 + seconds
 }
 
-const runFfmpeg = (inputPath, outputPath, onProgress) =>
+const runFfmpeg = (inputSource, outputPath, onProgress) =>
   new Promise((resolve, reject) => {
     const args = [
       "-y",
       "-i",
-      inputPath,
+      inputSource,
       "-c:v",
       "libx264",
       "-c:a",
@@ -401,8 +390,6 @@ const transcodeVideoToMp4 = async (video) => {
   await fs.mkdir(TMP_DIR, { recursive: true })
   const signedUrl = await getSignedR2Url(bucket, sourceKey, 3600)
   const tempBase = `transcode-${video.id}-${Date.now()}`
-  const inputExt = path.extname(sourceKey) || ".ts"
-  const inputPath = path.join(TMP_DIR, `${tempBase}${inputExt}`)
   const outputPath = path.join(TMP_DIR, `${tempBase}.mp4`)
 
   let lastPersistedProgress = -1
@@ -429,8 +416,7 @@ const transcodeVideoToMp4 = async (video) => {
       },
     })
 
-    await downloadToFile(signedUrl, inputPath)
-    await runFfmpeg(inputPath, outputPath, persistProgress)
+    await runFfmpeg(signedUrl, outputPath, persistProgress)
 
     let targetKey = sourceKey.replace(/\.ts$/i, ".mp4")
     if (targetKey === sourceKey) {
@@ -455,7 +441,7 @@ const transcodeVideoToMp4 = async (video) => {
       console.error("Failed to generate thumbnail after transcode:", error)
     }
   } finally {
-    await cleanupFiles(inputPath, outputPath)
+    await cleanupFiles(outputPath)
   }
 }
 

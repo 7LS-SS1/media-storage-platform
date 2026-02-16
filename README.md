@@ -73,6 +73,11 @@ npm run transcode:worker
 Optional env:
 - `TRANSCODE_TMP_DIR` - temp directory with enough space
 - `TRANSCODE_POLL_INTERVAL_MS` - polling interval (default 15000)
+- `ALLOW_INLINE_TRANSCODE=true` - allow inline transcode (local/server only, not serverless)
+
+Notes:
+- Vercel/serverless runtime should use queue/worker mode.
+- Inline transcode requests are blocked in serverless to prevent 504 timeout on large or long videos.
 
 ## API Endpoints
 
