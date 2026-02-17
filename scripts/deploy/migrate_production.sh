@@ -17,9 +17,12 @@ if [[ ! -f "${ENV_FILE}" ]]; then
   exit 1
 fi
 
-set -a
-source "${ENV_FILE}"
-set +a
+DIRECT_URL_LINE="$(grep -E '^DIRECT_URL=' "${ENV_FILE}" | tail -n 1 || true)"
+DIRECT_URL="${DIRECT_URL_LINE#DIRECT_URL=}"
+DIRECT_URL="${DIRECT_URL%\"}"
+DIRECT_URL="${DIRECT_URL#\"}"
+DIRECT_URL="${DIRECT_URL%\'}"
+DIRECT_URL="${DIRECT_URL#\'}"
 
 if [[ -z "${DIRECT_URL:-}" ]]; then
   echo "DIRECT_URL is required in ${ENV_FILE} for production migration."
