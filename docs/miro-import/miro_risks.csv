@@ -1,0 +1,10 @@
+Frame,Risk,Impact,Likelihood,Mitigation,Owner,Trigger,Status
+Risks & Mitigation,Worker process not running,High,Medium,Run with process manager and health checks plus alerting,DevOps,No progress on PROCESSING jobs for 15+ minutes,Open
+Risks & Mitigation,Serverless timeout on inline transcode,High,Low,Keep queue worker mode only and block inline on serverless,Backend,504 errors from transcode endpoint,Mitigated
+Risks & Mitigation,Neon connection saturation,High,Medium,Use pooled URL for runtime and cap concurrent workers,DBA,Spikes of connection refused or high latency,Open
+Risks & Mitigation,Insufficient disk for temp files,High,Medium,Use signed URL input stream and dedicated transcode tmp dir,Infra Lead,Worker host disk usage above 80 percent,Open
+Risks & Mitigation,R2 credentials misconfiguration,High,Medium,Validate environment at startup and add smoke checks,Backend,Upload failures and signed URL errors,Open
+Risks & Mitigation,Region mismatch causes high latency,Medium,Medium,Place VPS and Neon in nearest regions,Infra Lead,P95 DB latency above target,Open
+Risks & Mitigation,Stuck PROCESSING records,Medium,Medium,Add watchdog job to mark stale jobs failed for retry,Backend,Rows stuck at 0 percent over threshold,Open
+Risks & Mitigation,Single VPS failure outage,High,Low,Set snapshot backup and disaster recovery runbook,DevOps,VPS host downtime event,Open
+Risks & Mitigation,Uncontrolled cost growth,Medium,Medium,Track bandwidth storage and CPU usage weekly,PM,Monthly spend exceeds target budget,Open

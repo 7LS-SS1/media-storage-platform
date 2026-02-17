@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  web:
+    build:
+      context: .
+      target: web
+    env_file:
+      - .env.production
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      target: worker
+    env_file:
+      - .env.production
+    environment:
+      TRANSCODE_MODE: worker
+      FFMPEG_PATH: /usr/bin/ffmpeg
+      FFPROBE_PATH: /usr/bin/ffprobe
+      TRANSCODE_TMP_DIR: /tmp/transcode
+    volumes:
+      - transcode_tmp:/tmp/transcode
+    restart: unless-stopped
+    depends_on:
+      - web
+
+volumes:
+  transcode_tmp:

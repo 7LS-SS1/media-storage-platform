@@ -1,0 +1,28 @@
+Frame,Lane,Title,Description,Owner,ETA,Dependency,Priority,Status
+Execution Kanban,Backlog,Select VPS Plan,Choose Hostinger KVM 8 for production workload,Infra Lead,0.5d,None,High,Todo
+Execution Kanban,Backlog,Provision VPS,Create Ubuntu LTS VPS and verify access,Infra Lead,0.5d,Select VPS Plan,High,Todo
+Execution Kanban,Backlog,Secure VPS,Apply firewall fail2ban and SSH key only access,Infra Lead,0.5d,Provision VPS,High,Todo
+Execution Kanban,Backlog,Install Docker Stack,Install Docker and Docker Compose,Infra Lead,0.5d,Provision VPS,High,Todo
+Execution Kanban,Backlog,Install Coolify,Deploy Coolify on VPS and secure admin endpoint,DevOps,0.5d,Install Docker Stack,High,Todo
+Execution Kanban,Backlog,Prepare Production Secrets,Generate API secrets JWT and service credentials,Tech Lead,0.5d,None,High,Todo
+Execution Kanban,Backlog,Create Neon Project,Provision Neon production project and roles,DBA,0.5d,None,High,Todo
+Execution Kanban,Backlog,Set Runtime Database URL,Configure pooled DATABASE_URL for app runtime,DBA,0.25d,Create Neon Project,High,Todo
+Execution Kanban,Backlog,Set Migration Database URL,Configure DIRECT_URL for Prisma migrations,DBA,0.25d,Create Neon Project,High,Todo
+Execution Kanban,Backlog,Create R2 Buckets,Create media and jav buckets with access keys,Infra Lead,0.5d,None,High,Todo
+Execution Kanban,Backlog,Configure DNS and SSL,Point domain to VPS and issue certificates,Infra Lead,0.5d,Provision VPS,High,Todo
+Execution Kanban,Backlog,Deploy Web Service,Deploy Next.js web app through Coolify,Backend,1d,Install Coolify,High,Todo
+Execution Kanban,Backlog,Deploy Worker Service,Deploy transcode worker process on VPS,Backend,1d,Deploy Web Service,High,Todo
+Execution Kanban,Backlog,Set Transcode Mode Worker,Set TRANSCODE_MODE=worker in production env,Backend,0.25d,Deploy Worker Service,High,Todo
+Execution Kanban,Backlog,Install ffmpeg ffprobe,Install ffmpeg binaries and set executable paths,Backend,0.25d,Provision VPS,High,Todo
+Execution Kanban,Backlog,Run Prisma Migrate Deploy,Run production schema migration using DIRECT_URL,Backend,0.25d,Set Migration Database URL,High,Todo
+Execution Kanban,Backlog,Smoke Test Upload and Queue,Upload TS file and verify queue entry,QA,0.5d,Deploy Worker Service,High,Todo
+Execution Kanban,Backlog,Long Video Transcode Test,Test transcode flow for long duration media,QA,0.5d,Smoke Test Upload and Queue,High,Todo
+Execution Kanban,Backlog,Enable Worker Auto Restart,Configure process manager and restart policy,DevOps,0.5d,Deploy Worker Service,High,Todo
+Execution Kanban,Backlog,Centralize Logs,Ship app and worker logs to single observability target,DevOps,0.5d,Deploy Web Service,Medium,Todo
+Execution Kanban,Backlog,Set Processing Stuck Alert,Alert when status PROCESSING remains too long,DevOps,0.5d,Centralize Logs,High,Todo
+Execution Kanban,Backlog,Backup and Restore Drill,Validate recovery path for Neon data and schema,DBA,0.5d,Create Neon Project,High,Todo
+Execution Kanban,Backlog,Incident Runbook,Write SOP for transcode fail and stuck recovery,Tech Lead,0.5d,Set Processing Stuck Alert,Medium,Todo
+Execution Kanban,Backlog,Cutover and Rollback Plan,Prepare release checklist and rollback criteria,PM,0.5d,Long Video Transcode Test,High,Todo
+Execution Kanban,Backlog,Plugin Mode UAT,Validate thai_clip av_movie mode behavior end to end,QA,0.5d,Deploy Web Service,High,Todo
+Execution Kanban,Backlog,Production Cutover,Execute go live window with freeze policy,PM,0.25d,Cutover and Rollback Plan,Critical,Todo
+Execution Kanban,Backlog,Post Go Live Monitoring,Observe critical metrics for 72 hours,Team,3d,Production Cutover,Critical,Todo

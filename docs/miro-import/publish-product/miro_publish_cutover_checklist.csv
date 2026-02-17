@@ -1,0 +1,16 @@
+Frame,Category,Title,Description,Owner,Status,Priority
+Cutover Checklist,Infrastructure,VPS reachable over SSH,SSH key login works and sudo access confirmed,Infra Lead,Pending,Critical
+Cutover Checklist,Infrastructure,Coolify and Docker healthy,Coolify dashboard loads and Docker services stable,DevOps,Pending,Critical
+Cutover Checklist,Database,Neon pooled URL configured,Runtime DATABASE_URL points to pooled endpoint,DBA,Pending,Critical
+Cutover Checklist,Database,Neon direct URL ready,DIRECT_URL available for migration operations,DBA,Pending,High
+Cutover Checklist,Storage,R2 media bucket works,Upload and signed URL test pass for media bucket,Infra Lead,Pending,Critical
+Cutover Checklist,Storage,R2 jav bucket works,Upload and signed URL test pass for jav bucket,Infra Lead,Pending,High
+Cutover Checklist,Application,Web service healthy,Home API and auth endpoints return expected results,Backend,Pending,Critical
+Cutover Checklist,Application,Worker service healthy,Worker polls processing queue continuously,Backend,Pending,Critical
+Cutover Checklist,Application,Transcode mode set to worker,TRANSCODE_MODE equals worker in production env,Backend,Pending,Critical
+Cutover Checklist,Functional,TS to MP4 conversion test pass,Queued file reaches READY and mp4 playback works,QA,Pending,Critical
+Cutover Checklist,Functional,Long clip conversion pass,Long duration clip completes without timeout,QA,Pending,Critical
+Cutover Checklist,Integration,Plugin sync still works,Plugin mode based sync returns correct dataset,QA,Pending,High
+Cutover Checklist,Ops,Alerting enabled,Stuck processing and worker-down alerts are active,DevOps,Pending,High
+Cutover Checklist,Ops,Rollback plan validated,DNS rollback procedure tested and documented,PM,Pending,Critical
+Cutover Checklist,Ops,72h watch rota assigned,On-call ownership assigned for stabilization window,PM,Pending,High

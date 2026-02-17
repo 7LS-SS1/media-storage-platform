@@ -1,0 +1,11 @@
+Frame,Layer,Node,ConnectsTo,Notes
+Target Architecture,Client,Users and WordPress Plugin,CDN and Domain,Traffic source for API sync and playback
+Target Architecture,Edge,CDN and Domain,Next.js Web Service,HTTPS termination and routing
+Target Architecture,Application,Next.js Web Service,Neon PostgreSQL,Runtime reads writes metadata and status
+Target Architecture,Application,Next.js Web Service,Cloudflare R2,Generates signed URLs and asset paths
+Target Architecture,Processing,Transcode Worker,Neon PostgreSQL,Polls PROCESSING jobs and updates progress
+Target Architecture,Processing,Transcode Worker,Cloudflare R2,Reads source TS and uploads MP4 output
+Target Architecture,Data,Neon PostgreSQL,None,System of record for videos and processing state
+Target Architecture,Storage,Cloudflare R2,None,Durable object storage for media assets
+Target Architecture,Ops,Coolify Control Plane,Next.js Web Service,Deploy and manage app lifecycle
+Target Architecture,Ops,Coolify Control Plane,Transcode Worker,Deploy and supervise worker process

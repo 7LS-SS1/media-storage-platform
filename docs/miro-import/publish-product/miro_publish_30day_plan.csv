@@ -1,0 +1,9 @@
+Frame,Week,Title,Description,Owner,Output,Status
+30-Day Plan,Week 1,Provision and secure infrastructure,Create VPS harden OS install Docker and Coolify,Infra Lead,Ready infrastructure,Todo
+30-Day Plan,Week 1,Prepare platform integrations,Prepare Neon R2 and production env values,DBA,Validated connectivity,Todo
+30-Day Plan,Week 2,Deploy web and worker services,Deploy app and transcode worker in Coolify,Backend,Running services,Todo
+30-Day Plan,Week 2,Run migrations and smoke tests,Apply Prisma migrations and test critical APIs,Backend,Green smoke test report,Todo
+30-Day Plan,Week 3,Run transcode validation,Validate long clip processing and queue reliability,QA,Transcode reliability report,Todo
+30-Day Plan,Week 3,Enable monitoring and alerting,Setup logs metrics and critical alerts,DevOps,Operational visibility,Todo
+30-Day Plan,Week 4,UAT and cutover rehearsal,Run user acceptance tests and rollback drill,QA,UAT sign-off,Todo
+30-Day Plan,Week 4,Production cutover and stabilization,Switch DNS monitor for 72h and close migration,PM,Go-live completed,Todo

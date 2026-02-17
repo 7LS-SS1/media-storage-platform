@@ -1,0 +1,14 @@
+Frame,Item,Category,Owner,Status,Notes
+Go-Live Checklist,Web service deployed and healthy,Deployment,Backend,Pending,Verify app response and login flow
+Go-Live Checklist,Worker service online and polling,Deployment,Backend,Pending,Check worker log for polling loop
+Go-Live Checklist,ffmpeg and ffprobe available on worker,Dependency,Infra Lead,Pending,Run version command check
+Go-Live Checklist,Neon pooled runtime URL configured,Database,DBA,Pending,Validate runtime DB connectivity
+Go-Live Checklist,Neon direct migration URL configured,Database,DBA,Pending,Validate migration path
+Go-Live Checklist,R2 media and jav credentials validated,Storage,Infra Lead,Pending,Test upload and signed URL
+Go-Live Checklist,TS upload to processing queue works,Functional Test,QA,Pending,Expect PROCESSING status update
+Go-Live Checklist,Large long clip transcode completes,Functional Test,QA,Pending,Expect READY and MP4 playback
+Go-Live Checklist,Plugin mode filtering works,Integration Test,QA,Pending,Validate thai_clip and av_movie flows
+Go-Live Checklist,Alerting active for stuck jobs,Observability,DevOps,Pending,Trigger test alert scenario
+Go-Live Checklist,Backups and restore procedure tested,Reliability,DBA,Pending,Document RTO and RPO
+Go-Live Checklist,Rollback plan approved,Release,PM,Pending,Criteria and owner confirmed
+Go-Live Checklist,Post go-live watch window assigned,Operations,PM,Pending,72 hour coverage roster complete

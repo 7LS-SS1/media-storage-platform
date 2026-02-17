@@ -5,9 +5,9 @@ import Link from "next/link"
 import { Download, Package, Palette, ExternalLink, Key, ChevronRight, Check, Copy, Sparkles } from "lucide-react"
 
 export default function PluginPage() {
-  const [copiedEndpoint, setCopiedEndpoint] = useState(null)
+  const [copiedEndpoint, setCopiedEndpoint] = useState<number | null>(null)
 
-  const copyToClipboard = (text, id) => {
+  const copyToClipboard = (text: string, id: number) => {
     navigator.clipboard.writeText(text)
     setCopiedEndpoint(id)
     setTimeout(() => setCopiedEndpoint(null), 2000)
@@ -37,7 +37,7 @@ export default function PluginPage() {
         </div>
 
         {/* Download Cards */}
-        <div className="grid gap-8 lg:grid-cols-2 max-w-5xl mx-auto mb-12">
+        <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3 max-w-6xl mx-auto mb-12">
           {/* Plugin Card */}
           <div className="group relative">
             <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-blue-600 to-cyan-500 opacity-20 blur-lg group-hover:opacity-30 transition-opacity" />
@@ -49,7 +49,7 @@ export default function PluginPage() {
                     <Package className="h-7 w-7" />
                   </div>
                   <span className="px-3 py-1 bg-white/20 rounded-full text-sm font-medium backdrop-blur-sm">
-                    v1.1.1
+                    v2.0.1
                   </span>
                 </div>
                 <h2 className="text-2xl font-bold mb-1">Plugin WP</h2>
@@ -60,7 +60,7 @@ export default function PluginPage() {
               <div className="p-6">
                 {/* Download Button */}
                 <a
-                  href="/downloads/7ls-video-publisher-1.1.1.zip"
+                  href="/downloads/7ls-video-publisher-2.0.1.zip"
                   download
                   className="flex items-center justify-center gap-3 w-full py-4 px-6 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all duration-300 transform hover:-translate-y-0.5 mb-6"
                 >
@@ -76,7 +76,7 @@ export default function PluginPage() {
                   </div>
                   <div>
                     <p className="text-xs text-slate-500">ไฟล์ปลั๊กอิน</p>
-                    <p className="font-mono text-sm text-slate-700">7ls-video-publisher-1.1.1.zip</p>
+                    <p className="font-mono text-sm text-slate-700">7ls-video-publisher-2.0.1.zip</p>
                   </div>
                 </div>
 
@@ -211,6 +211,87 @@ export default function PluginPage() {
                   <Link
                     href="/videos"
                     className="flex items-center justify-center gap-2 w-full py-3 border-2 border-slate-200 hover:border-violet-300 hover:bg-violet-50 text-slate-700 hover:text-violet-700 font-medium rounded-xl transition-colors"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    ไปหน้าจัดการวิดีโอ
+                    <ChevronRight className="h-4 w-4" />
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Theme AV Card */}
+          <div className="group relative">
+            <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-rose-600 to-orange-500 opacity-20 blur-lg group-hover:opacity-30 transition-opacity" />
+            <div className="relative bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden">
+              <div className="bg-gradient-to-br from-rose-600 to-orange-600 p-6 text-white">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
+                    <Palette className="h-7 w-7" />
+                  </div>
+                  <span className="px-3 py-1 bg-white/20 rounded-full text-sm font-medium backdrop-blur-sm">
+                    AV Theme
+                  </span>
+                </div>
+                <h2 className="text-2xl font-bold mb-1">Theme AV</h2>
+                <p className="text-rose-100 text-sm">ธีม WordPress สำหรับเว็บไซต์สาย AV</p>
+              </div>
+
+              <div className="p-6">
+                <a
+                  href="/downloads/Theme-AV-api-20260217-173212.zip"
+                  download
+                  className="flex items-center justify-center gap-3 w-full py-4 px-6 bg-gradient-to-r from-rose-600 to-orange-600 hover:from-rose-700 hover:to-orange-700 text-white font-semibold rounded-xl shadow-lg shadow-rose-500/25 hover:shadow-rose-500/40 transition-all duration-300 transform hover:-translate-y-0.5 mb-6"
+                >
+                  <Download className="h-5 w-5" />
+                  ดาวน์โหลด Theme AV
+                  <span className="text-rose-200 text-sm font-normal">(.zip)</span>
+                </a>
+
+                <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg mb-6">
+                  <div className="p-2 bg-rose-100 rounded-lg">
+                    <Palette className="h-4 w-4 text-rose-600" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">ไฟล์ธีม AV</p>
+                    <p className="font-mono text-sm text-slate-700">Theme-AV-api-20260217-173212.zip</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                    <div className="h-1 w-1 rounded-full bg-rose-500" />
+                    วิธีติดตั้ง
+                  </div>
+
+                  <div className="space-y-3">
+                    {[
+                      { step: 1, text: "ดาวน์โหลดไฟล์ Theme AV (.zip)" },
+                      { step: 2, text: "ไปที่ Appearance > Themes > Add New" },
+                      { step: 3, text: "คลิก Upload Theme และเลือกไฟล์ Theme AV" },
+                      { step: 4, text: "Activate ธีมและเชื่อมต่อ Plugin เวอร์ชันใหม่" },
+                    ].map((item) => (
+                      <div key={item.step} className="flex items-center gap-3">
+                        <div className="flex-shrink-0 w-7 h-7 rounded-full bg-rose-100 text-rose-700 font-bold text-sm flex items-center justify-center">
+                          {item.step}
+                        </div>
+                        <span className="text-sm text-slate-600">{item.text}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-start gap-3 p-3 bg-rose-50 border border-rose-200 rounded-lg text-sm">
+                    <Package className="h-4 w-4 text-rose-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-rose-800 font-medium">แนะนำใช้ Plugin v2.0.1</p>
+                      <p className="text-rose-600 text-xs mt-0.5">เพื่อรองรับการทำงานล่าสุดของระบบ Media Storage</p>
+                    </div>
+                  </div>
+
+                  <Link
+                    href="/videos"
+                    className="flex items-center justify-center gap-2 w-full py-3 border-2 border-slate-200 hover:border-rose-300 hover:bg-rose-50 text-slate-700 hover:text-rose-700 font-medium rounded-xl transition-colors"
                   >
                     <ExternalLink className="h-4 w-4" />
                     ไปหน้าจัดการวิดีโอ

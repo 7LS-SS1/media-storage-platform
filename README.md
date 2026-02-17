@@ -79,6 +79,19 @@ Notes:
 - Vercel/serverless runtime should use queue/worker mode.
 - Inline transcode requests are blocked in serverless to prevent 504 timeout on large or long videos.
 
+## Production Deployment (Vercel to VPS)
+
+Deployment assets for real production migration are included:
+
+- `docs/deployment/PRODUCTION_PUBLISH_VPS_FROM_VERCEL.md`
+- `docs/deployment/EXECUTE_MIGRATION_VERCEL_TO_VPS_TH.md`
+- `Dockerfile` (targets: `web`, `worker`)
+- `docker-compose.production.yml`
+- `.env.production.example`
+- `scripts/deploy/bootstrap_ubuntu_vps.sh`
+- `scripts/deploy/migrate_production.sh`
+- `scripts/deploy/deploy_production_stack.sh`
+
 ## API Endpoints
 
 ### Authentication
