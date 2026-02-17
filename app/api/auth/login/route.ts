@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { comparePassword, generateToken } from "@/lib/auth"
 import { loginSchema } from "@/lib/validation"
+import { shouldUseSecureCookies } from "@/lib/cookie-security"
 
 export async function POST(request: NextRequest) {
   try {
@@ -46,10 +47,12 @@ export async function POST(request: NextRequest) {
       { status: 200 },
     )
 
+    const secureCookie = shouldUseSecureCookies(request)
+
     // Set HTTP-only cookie
     response.cookies.set("token", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: secureCookie,
       sameSite: "lax",
       maxAge: 60 * 60 * 24 * 7, // 7 days
       path: "/",

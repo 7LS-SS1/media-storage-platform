@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "crypto"
 import { getUserFromRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { canViewAllVideos } from "@/lib/roles"
+import { shouldUseSecureCookies } from "@/lib/cookie-security"
 
 const VIEW_COOKIE = "viewer_id"
 
@@ -74,11 +75,11 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
 
   const response = NextResponse.json({ counted })
   if (!cookieViewerId && !isAuthenticated) {
-    const isProduction = process.env.NODE_ENV === "production"
+    const secureCookie = shouldUseSecureCookies(request)
     response.cookies.set(VIEW_COOKIE, anonymousId, {
       httpOnly: true,
-      sameSite: isProduction ? "none" : "lax",
-      secure: isProduction,
+      sameSite: secureCookie ? "none" : "lax",
+      secure: secureCookie,
       maxAge: 60 * 60 * 24 * 365,
       path: "/",
     })
