@@ -74,7 +74,10 @@ export function VideoInfo({ videoId }: VideoInfoProps) {
       if (showLoading) {
         setLoading(true)
       }
-      const response = await fetch(`/api/videos/${videoId}`)
+      const response = await fetch(`/api/videos/${videoId}`, {
+        cache: "no-store",
+        credentials: "include",
+      })
       if (response.ok) {
         const data = await response.json()
         setVideo(data.video)

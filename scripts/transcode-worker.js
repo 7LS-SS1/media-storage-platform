@@ -218,32 +218,40 @@ const runFfmpeg = (inputSource, outputPath, onProgress) =>
       onProgress?.(progress)
     }
 
+    const processFfmpegLine = (line) => {
+      if (!durationSeconds) {
+        const durationMatch = line.match(/Duration:\s*(\d+:\d+:\d+(?:\.\d+)?)/)
+        if (durationMatch) {
+          durationSeconds = parseFfmpegTimestamp(durationMatch[1])
+        }
+      }
+      const timeMatch = line.match(/time=(\d+:\d+:\d+(?:\.\d+)?)/)
+      if (timeMatch) {
+        const currentSeconds = parseFfmpegTimestamp(timeMatch[1])
+        if (currentSeconds !== null) {
+          handleProgress(currentSeconds)
+        }
+      }
+    }
+
     processRef.stderr?.on("data", (chunk) => {
       const text = chunk.toString()
       stderr += text
       stderrBuffer += text
-      const lines = stderrBuffer.split(/\r?\n/)
+      // ffmpeg typically emits progress frames with '\r' (carriage return).
+      const lines = stderrBuffer.split(/[\r\n]+/)
       stderrBuffer = lines.pop() || ""
       for (const line of lines) {
-        if (!durationSeconds) {
-          const durationMatch = line.match(/Duration:\s*(\d+:\d+:\d+(?:\.\d+)?)/)
-          if (durationMatch) {
-            durationSeconds = parseFfmpegTimestamp(durationMatch[1])
-          }
-        }
-        const timeMatch = line.match(/time=(\d+:\d+:\d+(?:\.\d+)?)/)
-        if (timeMatch) {
-          const currentSeconds = parseFfmpegTimestamp(timeMatch[1])
-          if (currentSeconds !== null) {
-            handleProgress(currentSeconds)
-          }
-        }
+        processFfmpegLine(line)
       }
     })
     processRef.on("error", (error) => {
       reject(error)
     })
     processRef.on("close", (code) => {
+      if (stderrBuffer) {
+        processFfmpegLine(stderrBuffer)
+      }
       if (code === 0) {
         onProgress?.(100)
         resolve()
