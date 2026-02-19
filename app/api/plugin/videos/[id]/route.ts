@@ -11,6 +11,7 @@ import { parseStorageBucket } from "@/lib/storage-bucket"
 const mapVideo = async (video: {
   id: string
   title: string
+  targetKeyword: string
   description: string | null
   movieCode: string | null
   studio: string | null
@@ -32,6 +33,7 @@ const mapVideo = async (video: {
   return {
     id: video.id,
     title: video.title,
+    target_keyword: video.targetKeyword,
     description: video.description ?? "",
     movie_code: video.movieCode ?? null,
     studio: video.studio ?? null,
@@ -183,6 +185,7 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
       where: { id: params.id },
       data: {
         title: validatedData.title,
+        targetKeyword: validatedData.targetKeyword,
         description: validatedData.description,
         tags: validatedData.tags === undefined ? undefined : normalizeTags(validatedData.tags),
         visibility: validatedData.visibility,

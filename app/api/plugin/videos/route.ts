@@ -42,6 +42,7 @@ const parseSinceDate = (value: string | null) => {
 const mapVideo = async (video: {
   id: string
   title: string
+  targetKeyword: string
   description: string | null
   movieCode: string | null
   studio: string | null
@@ -64,6 +65,7 @@ const mapVideo = async (video: {
   return {
     id: video.id,
     title: video.title,
+    target_keyword: video.targetKeyword,
     description: video.description ?? "",
     movie_code: video.movieCode ?? null,
     studio: video.studio ?? null,

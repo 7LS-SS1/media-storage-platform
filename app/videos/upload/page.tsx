@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, useCallback, type FormEvent, type KeyboardEvent } from "react"
+import { useEffect, useMemo, useState, useCallback, useRef, type FormEvent, type KeyboardEvent } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import {
@@ -24,6 +24,10 @@ import {
   ChevronRight,
   Play,
   Loader2,
+  BarChart2,
+  AlertTriangle,
+  RefreshCw,
+  TrendingUp,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
@@ -40,6 +44,9 @@ import { StudioSelect } from "@/components/studio-select"
 import { AV_GENRES } from "@/lib/av-genres"
 import { STANDARD_TAGS } from "@/lib/standard-tags"
 import { TAG_LIMIT } from "@/lib/tag-constraints"
+import { SEO_PASS_SCORE } from "@/lib/video-seo"
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Category {
   id: string
@@ -52,20 +59,40 @@ interface Domain {
   isActive: boolean
 }
 
+interface SeoCheck {
+  key: string
+  label: string
+  passed: boolean
+  message: string
+  suggestion: string
+  weight: number
+  earned: number
+  isCritical: boolean
+}
+
 type Visibility = "PUBLIC" | "PRIVATE" | "DOMAIN_RESTRICTED"
 type StorageBucket = "media" | "jav"
+type SeoStatus = "idle" | "running" | "done"
+
+// ─── Steps ───────────────────────────────────────────────────────────────────
 
 const steps = [
   { id: 1, title: "ประเภท & ไฟล์", icon: FileVideo },
   { id: 2, title: "ข้อมูลวิดีโอ", icon: Info },
   { id: 3, title: "หมวดหมู่ & แท็ก", icon: Tag },
-  { id: 4, title: "ตรวจสอบ & อัปโหลด", icon: Check },
+  { id: 4, title: "ตรวจ SEO", icon: BarChart2 },
+  { id: 5, title: "ตรวจสอบ & อัปโหลด", icon: Check },
 ]
+
+// ─── Page Component ───────────────────────────────────────────────────────────
 
 export default function UploadVideoPage() {
   const router = useRouter()
   const [currentStep, setCurrentStep] = useState(1)
+
+  // ── Form State ──────────────────────────────────────────────────────────────
   const [title, setTitle] = useState("")
+  const [targetKeyword, setTargetKeyword] = useState("")
   const [description, setDescription] = useState("")
   const [actors, setActors] = useState<string[]>([])
   const [categoryIds, setCategoryIds] = useState<string[]>([])
@@ -95,6 +122,25 @@ export default function UploadVideoPage() {
   const [isDraggingVideo, setIsDraggingVideo] = useState(false)
   const [isDraggingThumb, setIsDraggingThumb] = useState(false)
 
+  // ── SEO State ───────────────────────────────────────────────────────────────
+  const [seoStatus, setSeoStatus] = useState<SeoStatus>("idle")
+  const [seoProgress, setSeoProgress] = useState(0)
+  const [seoScore, setSeoScore] = useState<number | null>(null)
+  const [seoPassed, setSeoPassed] = useState<boolean | null>(null)
+  const [seoChecks, setSeoChecks] = useState<SeoCheck[]>([])
+  const [seoRecommendations, setSeoRecommendations] = useState<string[]>([])
+  const [isGenerating, setIsGenerating] = useState(false)
+
+  // Track form data fingerprint used for last SEO run so we can show "stale" warning
+  const lastSeoFingerprint = useRef<string | null>(null)
+
+  const currentFingerprint = `${title}||${targetKeyword}||${description}||${tags.join(",")}||${!!thumbnailFile}`
+  const seoIsStale =
+    seoStatus === "done" &&
+    lastSeoFingerprint.current !== null &&
+    lastSeoFingerprint.current !== currentFingerprint
+
+  // ── Derived ─────────────────────────────────────────────────────────────────
   const normalizedTags = useMemo(() => new Set(tags.map((tag) => tag.toLowerCase())), [tags])
   const isAv = storageBucket === "jav"
   const tagOptions = isAv ? AV_GENRES : STANDARD_TAGS
@@ -102,6 +148,7 @@ export default function UploadVideoPage() {
   const tagPlaceholder = isAv ? "พิมพ์ประเภทหนังแล้วกด Enter" : "พิมพ์แท็กแล้วกด Enter"
   const tagLimitMessage = `เพิ่มแท็กได้สูงสุด ${TAG_LIMIT} รายการ`
 
+  // ── Helpers ─────────────────────────────────────────────────────────────────
   const slugify = (value: string) =>
     value.trim().toLowerCase().replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "")
 
@@ -121,35 +168,40 @@ export default function UploadVideoPage() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
   }
 
-  // Handle video file selection
-  const handleVideoSelect = useCallback((file: File | null) => {
-    if (videoPreview) URL.revokeObjectURL(videoPreview)
-    setVideoFile(file)
-    if (file) {
-      setVideoPreview(URL.createObjectURL(file))
-      if (errors.videoFile) {
-        setErrors((current) => {
-          const { videoFile, ...rest } = current
-          return rest
-        })
+  // ── File Handlers ────────────────────────────────────────────────────────────
+  const handleVideoSelect = useCallback(
+    (file: File | null) => {
+      if (videoPreview) URL.revokeObjectURL(videoPreview)
+      setVideoFile(file)
+      if (file) {
+        setVideoPreview(URL.createObjectURL(file))
+        if (errors.videoFile) {
+          setErrors((current) => {
+            const { videoFile, ...rest } = current
+            return rest
+          })
+        }
+      } else {
+        setVideoPreview(null)
       }
-    } else {
-      setVideoPreview(null)
-    }
-  }, [videoPreview, errors.videoFile])
+    },
+    [videoPreview, errors.videoFile],
+  )
 
-  // Handle thumbnail file selection
-  const handleThumbnailSelect = useCallback((file: File | null) => {
-    if (thumbnailPreview) URL.revokeObjectURL(thumbnailPreview)
-    setThumbnailFile(file)
-    if (file) {
-      setThumbnailPreview(URL.createObjectURL(file))
-    } else {
-      setThumbnailPreview(null)
-    }
-  }, [thumbnailPreview])
+  const handleThumbnailSelect = useCallback(
+    (file: File | null) => {
+      if (thumbnailPreview) URL.revokeObjectURL(thumbnailPreview)
+      setThumbnailFile(file)
+      if (file) {
+        setThumbnailPreview(URL.createObjectURL(file))
+      } else {
+        setThumbnailPreview(null)
+      }
+    },
+    [thumbnailPreview],
+  )
 
-  // Drag and drop handlers
+  // ── Drag & Drop ───────────────────────────────────────────────────────────────
   const handleDragOver = (e: React.DragEvent, setDragging: (v: boolean) => void) => {
     e.preventDefault()
     setDragging(true)
@@ -164,26 +216,26 @@ export default function UploadVideoPage() {
     e.preventDefault()
     setIsDraggingVideo(false)
     const file = e.dataTransfer.files[0]
-    if (file && file.type.startsWith("video/")) {
-      handleVideoSelect(file)
-    }
+    if (file && file.type.startsWith("video/")) handleVideoSelect(file)
   }
 
   const handleThumbDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDraggingThumb(false)
     const file = e.dataTransfer.files[0]
-    if (file && file.type.startsWith("image/")) {
-      handleThumbnailSelect(file)
-    }
+    if (file && file.type.startsWith("image/")) handleThumbnailSelect(file)
   }
 
+  // ── Tag Management ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (tagError && tags.length < TAG_LIMIT) setTagError(null)
   }, [tagError, tags.length])
 
   const addTags = (value: string) => {
-    const nextTags = value.split(",").map((tag) => tag.trim()).filter(Boolean)
+    const nextTags = value
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean)
     if (nextTags.length === 0) return
     let hitLimit = false
     setTags((current) => {
@@ -238,6 +290,7 @@ export default function UploadVideoPage() {
     else setTagError(null)
   }
 
+  // ── Category Management ──────────────────────────────────────────────────────
   const handleToggleNewCategory = (checked: boolean) => {
     setEnableNewCategory(checked)
     if (!checked) {
@@ -269,7 +322,7 @@ export default function UploadVideoPage() {
         return next
       })
       setCategoryIds((current) =>
-        current.includes(data.category.id) ? current : [...current, data.category.id]
+        current.includes(data.category.id) ? current : [...current, data.category.id],
       )
       setNewCategoryName("")
       toast.success("เพิ่มหมวดหมู่สำเร็จ")
@@ -322,18 +375,135 @@ export default function UploadVideoPage() {
 
   const toggleDomain = (domainId: string) => {
     setAllowedDomainIds((current) =>
-      current.includes(domainId) ? current.filter((id) => id !== domainId) : [...current, domainId]
+      current.includes(domainId) ? current.filter((id) => id !== domainId) : [...current, domainId],
     )
   }
 
   const toggleCategory = (categoryId: string) => {
     setCategoryIds((current) =>
-      current.includes(categoryId)
-        ? current.filter((id) => id !== categoryId)
-        : [...current, categoryId]
+      current.includes(categoryId) ? current.filter((id) => id !== categoryId) : [...current, categoryId],
     )
   }
 
+  // ── SEO: Run Analysis (streaming) ────────────────────────────────────────────
+  const handleRunSeo = useCallback(
+    async (overrides?: { title?: string; targetKeyword?: string; description?: string; tags?: string[] }) => {
+      const seoTitle = overrides?.title ?? title
+      const seoTargetKeyword = overrides?.targetKeyword ?? targetKeyword
+      const seoDesc = overrides?.description ?? description
+      const seoTags = overrides?.tags ?? tags
+
+      setSeoStatus("running")
+      setSeoProgress(0)
+      setSeoChecks([])
+      setSeoScore(null)
+      setSeoPassed(null)
+      setSeoRecommendations([])
+
+      try {
+        const response = await fetch("/api/seo/videos/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            title: seoTitle,
+            targetKeyword: seoTargetKeyword,
+            description: seoDesc || undefined,
+            tags: seoTags,
+            hasThumbnail: !!thumbnailFile,
+            movieCode: movieCode || undefined,
+            studio: studio || undefined,
+            storageBucket,
+            actors,
+          }),
+        })
+
+        if (!response.ok) throw new Error("SEO analysis failed")
+
+        const reader = response.body!.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ""
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split("\n")
+          buffer = lines.pop() || ""
+
+          for (const line of lines) {
+            if (!line.trim()) continue
+            try {
+              const event = JSON.parse(line)
+              if (event.type === "check") {
+                setSeoChecks((prev) => [...prev, event.check as SeoCheck])
+                setSeoProgress(event.progress as number)
+              } else if (event.type === "result") {
+                setSeoScore(event.score as number)
+                setSeoPassed(event.passed as boolean)
+                setSeoRecommendations(event.recommendations as string[])
+                setSeoProgress(100)
+                setSeoStatus("done")
+                lastSeoFingerprint.current = `${seoTitle}||${seoTargetKeyword}||${seoDesc}||${seoTags.join(",")}||${!!thumbnailFile}`
+              }
+            } catch {
+              // malformed line — skip
+            }
+          }
+        }
+      } catch (error) {
+        setSeoStatus("idle")
+        toast.error("เกิดข้อผิดพลาดในการตรวจ SEO กรุณาลองใหม่")
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [title, targetKeyword, description, tags, thumbnailFile, movieCode, studio, storageBucket, actors],
+  )
+
+  // ── SEO: Generate Improvements ────────────────────────────────────────────────
+  const handleGenerate = async () => {
+    setIsGenerating(true)
+    try {
+      const response = await fetch("/api/seo/videos/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          title,
+          targetKeyword,
+          description: description || undefined,
+          tags,
+          hasThumbnail: !!thumbnailFile,
+          movieCode: movieCode || undefined,
+          studio: studio || undefined,
+          storageBucket,
+          actors,
+        }),
+      })
+
+      if (!response.ok) throw new Error("Generate failed")
+
+      const result = await response.json()
+      setTitle(result.title as string)
+      setDescription(result.description as string)
+      setTags(result.tags as string[])
+      toast.success(`สร้างข้อมูล SEO ใหม่แล้ว (คาดคะแนน ${result.expectedScore}/100) — กำลังตรวจซ้ำ…`)
+
+      // Auto-rerun SEO with new values (pass directly to avoid stale closure)
+      await handleRunSeo({
+        title: result.title as string,
+        targetKeyword,
+        description: result.description as string,
+        tags: result.tags as string[],
+      })
+    } catch (error) {
+      toast.error("เกิดข้อผิดพลาดในการสร้างข้อมูล SEO")
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  // ── Upload Helpers ────────────────────────────────────────────────────────────
   const MULTIPART_FORCE_THRESHOLD = 1 * 1024 * 1024 * 1024
 
   const normalizeErrorText = (value: string) => value.replace(/\s+/g, " ").trim()
@@ -349,71 +519,34 @@ export default function UploadVideoPage() {
   }
 
   const buildXhrErrorMessage = (xhr: XMLHttpRequest, fallback: string) => {
-    if (xhr.status === 0) {
-      return `${fallback}: การเชื่อมต่อถูกบล็อก (CORS) หรือเน็ตหลุด`
-    }
+    if (xhr.status === 0) return `${fallback}: การเชื่อมต่อถูกบล็อก (CORS) หรือเน็ตหลุด`
     const responseText = normalizeErrorText(xhr.responseText || "")
-    if (responseText) {
-      return `${fallback} (status ${xhr.status}): ${truncateMessage(responseText)}`
-    }
+    if (responseText) return `${fallback} (status ${xhr.status}): ${truncateMessage(responseText)}`
     return `${fallback} (status ${xhr.status})`
   }
 
   const formatUploadError = (error: unknown) => {
     const raw = error instanceof Error ? error.message : ""
     const message = normalizeErrorText(raw)
-
-    if (!message) {
-      return "อัปโหลดไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"
-    }
-
+    if (!message) return "อัปโหลดไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"
     if (message.includes("Missing R2 configuration")) {
       const missing = message.split(":").slice(1).join(":").trim()
       return `ตั้งค่า R2 ไม่ครบ${missing ? ` (${missing})` : ""}`
     }
-
-    if (message.includes("Invalid file type")) {
-      return `ชนิดไฟล์ไม่รองรับ: ${truncateMessage(message)}`
-    }
-
-    if (message.includes("File too large")) {
-      return `ไฟล์ใหญ่เกินกำหนด: ${truncateMessage(message)}`
-    }
-
-    if (message.includes("Unauthorized")) {
-      return "เซสชันหมดอายุหรือยังไม่ได้เข้าสู่ระบบ"
-    }
-
-    if (message.includes("Forbidden")) {
-      return "สิทธิ์ไม่เพียงพอสำหรับการอัปโหลด"
-    }
-
-    if (message.toLowerCase().includes("etag")) {
-      return "อัปโหลดไม่สำเร็จ: ไม่พบ ETag จาก R2"
-    }
-
+    if (message.includes("Invalid file type")) return `ชนิดไฟล์ไม่รองรับ: ${truncateMessage(message)}`
+    if (message.includes("File too large")) return `ไฟล์ใหญ่เกินกำหนด: ${truncateMessage(message)}`
+    if (message.includes("Unauthorized")) return "เซสชันหมดอายุหรือยังไม่ได้เข้าสู่ระบบ"
+    if (message.includes("Forbidden")) return "สิทธิ์ไม่เพียงพอสำหรับการอัปโหลด"
+    if (message.toLowerCase().includes("etag")) return "อัปโหลดไม่สำเร็จ: ไม่พบ ETag จาก R2"
     const statusCode = extractStatusCode(message)
-    if (statusCode === 0) {
-      return "อัปโหลดไม่สำเร็จ: ถูกบล็อกโดย CORS หรือเน็ตหลุด"
-    }
-    if (statusCode === 403) {
-      return "อัปโหลดไม่สำเร็จ: ลิงก์อัปโหลดหมดอายุหรือสิทธิ์ไม่ถูกต้อง (403)"
-    }
-    if (statusCode === 413) {
-      return "อัปโหลดไม่สำเร็จ: ไฟล์ใหญ่เกินข้อจำกัดของเซิร์ฟเวอร์ (413)"
-    }
-    if (statusCode === 429) {
-      return "อัปโหลดไม่สำเร็จ: คำขอมากเกินไป กรุณารอสักครู่ (429)"
-    }
-
+    if (statusCode === 0) return "อัปโหลดไม่สำเร็จ: ถูกบล็อกโดย CORS หรือเน็ตหลุด"
+    if (statusCode === 403) return "อัปโหลดไม่สำเร็จ: ลิงก์อัปโหลดหมดอายุหรือสิทธิ์ไม่ถูกต้อง (403)"
+    if (statusCode === 413) return "อัปโหลดไม่สำเร็จ: ไฟล์ใหญ่เกินข้อจำกัดของเซิร์ฟเวอร์ (413)"
+    if (statusCode === 429) return "อัปโหลดไม่สำเร็จ: คำขอมากเกินไป กรุณารอสักครู่ (429)"
     return truncateMessage(message)
   }
 
-  const uploadPart = (
-    uploadUrl: string,
-    blob: Blob,
-    onPartProgress: (loaded: number) => void
-  ) =>
+  const uploadPart = (uploadUrl: string, blob: Blob, onPartProgress: (loaded: number) => void) =>
     new Promise<string>((resolve, reject) => {
       const xhr = new XMLHttpRequest()
       xhr.open("PUT", uploadUrl)
@@ -439,15 +572,9 @@ export default function UploadVideoPage() {
 
   const uploadMultipartFile = async (
     file: File,
-    uploadInfo: {
-      uploadId: string
-      key: string
-      partSize: number
-      publicUrl: string
-      contentType: string
-    },
+    uploadInfo: { uploadId: string; key: string; partSize: number; publicUrl: string; contentType: string },
     onProgress: (progress: number) => void,
-    bucket: StorageBucket
+    bucket: StorageBucket,
   ) => {
     const totalParts = Math.ceil(file.size / uploadInfo.partSize)
     const parts: Array<{ ETag: string; PartNumber: number }> = []
@@ -472,9 +599,7 @@ export default function UploadVideoPage() {
           }),
         })
         const partInfo = await partResponse.json()
-        if (!partResponse.ok) {
-          throw new Error(partInfo.error || "Failed to prepare upload part")
-        }
+        if (!partResponse.ok) throw new Error(partInfo.error || "Failed to prepare upload part")
 
         const etag = await uploadPart(partInfo.uploadUrl, blob, (loaded) => {
           const totalLoaded = uploadedBytes + loaded
@@ -499,9 +624,7 @@ export default function UploadVideoPage() {
         }),
       })
       const completeInfo = await completeResponse.json().catch(() => ({}))
-      if (!completeResponse.ok) {
-        throw new Error(completeInfo.error || "Failed to complete upload")
-      }
+      if (!completeResponse.ok) throw new Error(completeInfo.error || "Failed to complete upload")
 
       onProgress(100)
       return { url: uploadInfo.publicUrl, size: file.size, type: uploadInfo.contentType }
@@ -525,7 +648,7 @@ export default function UploadVideoPage() {
     file: File,
     type: "video" | "thumbnail",
     onProgress: (progress: number) => void,
-    bucket: StorageBucket
+    bucket: StorageBucket,
   ) => {
     const contentType = type === "video" ? normalizeVideoContentType(file) : file.type
     const shouldForceMultipart = type === "video" && file.size >= MULTIPART_FORCE_THRESHOLD
@@ -556,11 +679,7 @@ export default function UploadVideoPage() {
       return uploadInfo
     }
 
-    const uploadSinglePut = (uploadInfo: {
-      uploadUrl: string
-      publicUrl: string
-      contentType: string
-    }) =>
+    const uploadSinglePut = (uploadInfo: { uploadUrl: string; publicUrl: string; contentType: string }) =>
       new Promise<{ url: string; size: number; type: string }>((resolve, reject) => {
         const xhr = new XMLHttpRequest()
         xhr.open("PUT", uploadInfo.uploadUrl)
@@ -581,10 +700,7 @@ export default function UploadVideoPage() {
       })
 
     const uploadInfo = await requestUploadInfo(false)
-
-    if (uploadInfo.multipart) {
-      return await uploadMultipartFile(file, uploadInfo, onProgress, bucket)
-    }
+    if (uploadInfo.multipart) return await uploadMultipartFile(file, uploadInfo, onProgress, bucket)
 
     try {
       return await uploadSinglePut(uploadInfo)
@@ -594,27 +710,24 @@ export default function UploadVideoPage() {
         type === "video" &&
         (statusCode === 0 || statusCode === 413 || statusCode === 502 || statusCode === 503)
 
-      if (!shouldRetryMultipart) {
-        throw error
-      }
+      if (!shouldRetryMultipart) throw error
 
       onProgress(0)
       const retryInfo = await requestUploadInfo(true)
-      if (!retryInfo.multipart) {
-        throw error
-      }
+      if (!retryInfo.multipart) throw error
       return await uploadMultipartFile(file, retryInfo, onProgress, bucket)
     }
   }
 
+  // ── Validation ────────────────────────────────────────────────────────────────
   const validateStep = (step: number): boolean => {
     const nextErrors: Record<string, string> = {}
-
     if (step === 1) {
       if (!videoFile) nextErrors.videoFile = "กรุณาเลือกไฟล์วิดีโอ"
     }
     if (step === 2) {
       if (!title.trim()) nextErrors.title = "กรุณากรอกชื่อวิดีโอ"
+      if (!targetKeyword.trim()) nextErrors.targetKeyword = "กรุณากรอกคีย์เวิร์ดหลัก (Target keyword)"
     }
     if (step === 3) {
       if (tags.length > TAG_LIMIT) {
@@ -625,14 +738,13 @@ export default function UploadVideoPage() {
         nextErrors.allowedDomainIds = "กรุณาเลือกอย่างน้อยหนึ่งโดเมน"
       }
     }
-
     setErrors(nextErrors)
     return Object.keys(nextErrors).length === 0
   }
 
   const handleNext = () => {
     if (validateStep(currentStep)) {
-      setCurrentStep((prev) => Math.min(prev + 1, 4))
+      setCurrentStep((prev) => Math.min(prev + 1, steps.length))
     }
   }
 
@@ -640,9 +752,14 @@ export default function UploadVideoPage() {
     setCurrentStep((prev) => Math.max(prev - 1, 1))
   }
 
+  // ── Submit ────────────────────────────────────────────────────────────────────
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     if (!validateStep(1) || !validateStep(2) || !validateStep(3)) return
+    if (seoPassed !== true) {
+      toast.error("กรุณาผ่านการตรวจ SEO (ขั้นตอนที่ 4) ก่อนอัปโหลด")
+      return
+    }
 
     setLoading(true)
     setUploadStatus("กำลังอัปโหลดวิดีโอ...")
@@ -667,6 +784,7 @@ export default function UploadVideoPage() {
         credentials: "include",
         body: JSON.stringify({
           title: title.trim(),
+          targetKeyword: targetKeyword.trim(),
           description: description.trim() || undefined,
           tags,
           actors,
@@ -705,6 +823,7 @@ export default function UploadVideoPage() {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30">
       <div className="container mx-auto px-4 py-8 max-w-5xl">
@@ -739,42 +858,39 @@ export default function UploadVideoPage() {
               return (
                 <div key={step.id} className="flex items-center flex-1">
                   <button
+                    type="button"
                     onClick={() => {
-                      if (isCompleted || (step.id < currentStep)) {
-                        setCurrentStep(step.id)
-                      }
+                      if (isCompleted || step.id < currentStep) setCurrentStep(step.id)
                     }}
                     disabled={step.id > currentStep}
-                    className={`flex items-center gap-3 transition-all ${
+                    className={`flex items-center gap-2 transition-all ${
                       step.id <= currentStep ? "cursor-pointer" : "cursor-not-allowed opacity-50"
                     }`}
                   >
                     <div
-                      className={`flex items-center justify-center w-10 h-10 rounded-full transition-all ${
+                      className={`flex items-center justify-center w-9 h-9 rounded-full transition-all flex-shrink-0 ${
                         isActive
                           ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/30"
                           : isCompleted
-                          ? "bg-emerald-500 text-white"
-                          : "bg-slate-200 text-slate-500"
+                            ? "bg-emerald-500 text-white"
+                            : "bg-slate-200 text-slate-500"
                       }`}
                     >
-                      {isCompleted ? <Check className="h-5 w-5" /> : <Icon className="h-5 w-5" />}
+                      {isCompleted ? <Check className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
                     </div>
-                    <div className="hidden sm:block text-left">
+                    <div className="hidden lg:block text-left">
                       <p className={`text-xs ${isActive ? "text-indigo-600" : "text-slate-400"}`}>
                         ขั้นตอน {step.id}
                       </p>
-                      <p className={`text-sm font-medium ${isActive ? "text-slate-900" : "text-slate-600"}`}>
+                      <p className={`text-xs font-medium ${isActive ? "text-slate-900" : "text-slate-600"}`}>
                         {step.title}
                       </p>
                     </div>
                   </button>
                   {index < steps.length - 1 && (
-                    <div className="flex-1 mx-4">
+                    <div className="flex-1 mx-2">
                       <div
-                        className={`h-1 rounded-full transition-all ${
-                          isCompleted ? "bg-emerald-500" : "bg-slate-200"
-                        }`}
+                        className={`h-1 rounded-full transition-all ${isCompleted ? "bg-emerald-500" : "bg-slate-200"}`}
                       />
                     </div>
                   )}
@@ -787,7 +903,8 @@ export default function UploadVideoPage() {
         {/* Form Content */}
         <form onSubmit={handleSubmit}>
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden">
-            {/* Step 1: Type & Files */}
+
+            {/* ── Step 1: Type & Files ───────────────────────────────────────── */}
             {currentStep === 1 && (
               <div className="p-6 sm:p-8 space-y-6">
                 <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
@@ -859,10 +976,10 @@ export default function UploadVideoPage() {
                       isDraggingVideo
                         ? "border-indigo-500 bg-indigo-50"
                         : videoFile
-                        ? "border-emerald-300 bg-emerald-50"
-                        : errors.videoFile
-                        ? "border-red-300 bg-red-50"
-                        : "border-slate-300 hover:border-slate-400 bg-slate-50"
+                          ? "border-emerald-300 bg-emerald-50"
+                          : errors.videoFile
+                            ? "border-red-300 bg-red-50"
+                            : "border-slate-300 hover:border-slate-400 bg-slate-50"
                     }`}
                   >
                     {videoFile ? (
@@ -926,8 +1043,8 @@ export default function UploadVideoPage() {
                       isDraggingThumb
                         ? "border-indigo-500 bg-indigo-50"
                         : thumbnailFile
-                        ? "border-emerald-300 bg-emerald-50"
-                        : "border-slate-300 hover:border-slate-400 bg-slate-50"
+                          ? "border-emerald-300 bg-emerald-50"
+                          : "border-slate-300 hover:border-slate-400 bg-slate-50"
                     }`}
                   >
                     {thumbnailFile ? (
@@ -977,7 +1094,7 @@ export default function UploadVideoPage() {
               </div>
             )}
 
-            {/* Step 2: Video Info */}
+            {/* ── Step 2: Video Info ─────────────────────────────────────────── */}
             {currentStep === 2 && (
               <div className="p-6 sm:p-8 space-y-6">
                 <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
@@ -1030,6 +1147,25 @@ export default function UploadVideoPage() {
                 </div>
 
                 <div className="space-y-2">
+                  <Label htmlFor="target-keyword" className="text-sm font-medium text-slate-700">
+                    คีย์เวิร์ดหลัก (Target keyword) *
+                  </Label>
+                  <Input
+                    id="target-keyword"
+                    placeholder={isAv ? "เช่น รหัสหนัง หรือคีย์เวิร์ดที่ต้องการติดอันดับ" : "เช่น คำหลักที่ต้องการให้ค้นหาเจอ"}
+                    value={targetKeyword}
+                    onChange={(e) => setTargetKeyword(e.target.value)}
+                    className={`bg-slate-50 border-slate-200 focus:bg-white ${
+                      errors.targetKeyword ? "border-red-300" : ""
+                    }`}
+                  />
+                  <p className="text-xs text-slate-500">
+                    ใช้ 1 คำหลักที่ชัดเจน และควรมีอยู่ในชื่อ/คำอธิบาย/แท็ก
+                  </p>
+                  {errors.targetKeyword && <p className="text-sm text-red-500">{errors.targetKeyword}</p>}
+                </div>
+
+                <div className="space-y-2">
                   <Label htmlFor="description" className="text-sm font-medium text-slate-700">
                     {isAv ? "เนื้อหาหนัง" : "รายละเอียด"}
                   </Label>
@@ -1045,7 +1181,10 @@ export default function UploadVideoPage() {
 
                 {isAv && (
                   <div className="space-y-2">
-                    <Label htmlFor="release-date" className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                    <Label
+                      htmlFor="release-date"
+                      className="flex items-center gap-2 text-sm font-medium text-slate-700"
+                    >
                       <Calendar className="h-4 w-4 text-slate-400" />
                       วันที่ออกจำหน่าย
                     </Label>
@@ -1078,7 +1217,7 @@ export default function UploadVideoPage() {
               </div>
             )}
 
-            {/* Step 3: Categories & Tags */}
+            {/* ── Step 3: Categories & Tags ─────────────────────────────────── */}
             {currentStep === 3 && (
               <div className="p-6 sm:p-8 space-y-6">
                 <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
@@ -1127,7 +1266,11 @@ export default function UploadVideoPage() {
                     <Label htmlFor="new-cat-switch" className="text-sm text-slate-600 cursor-pointer">
                       เพิ่มหมวดหมู่ใหม่
                     </Label>
-                    <Switch id="new-cat-switch" checked={enableNewCategory} onCheckedChange={handleToggleNewCategory} />
+                    <Switch
+                      id="new-cat-switch"
+                      checked={enableNewCategory}
+                      onCheckedChange={handleToggleNewCategory}
+                    />
                   </div>
                   {enableNewCategory && (
                     <div className="p-4 rounded-lg border border-slate-200 bg-white space-y-3">
@@ -1159,7 +1302,9 @@ export default function UploadVideoPage() {
                   <Label className="flex items-center gap-2 text-sm font-medium text-slate-700">
                     <Tag className="h-4 w-4 text-slate-400" />
                     {tagLabel}
-                    <span className="text-slate-400 font-normal">({tags.length}/{TAG_LIMIT})</span>
+                    <span className="text-slate-400 font-normal">
+                      ({tags.length}/{TAG_LIMIT})
+                    </span>
                   </Label>
                   <div className="flex gap-2">
                     <Input
@@ -1186,6 +1331,7 @@ export default function UploadVideoPage() {
                           <button
                             type="button"
                             onClick={() => removeTag(tag)}
+                            aria-label={`ลบแท็ก ${tag}`}
                             className="ml-1 hover:text-red-500 rounded-full"
                           >
                             <X className="h-3 w-3" />
@@ -1198,7 +1344,7 @@ export default function UploadVideoPage() {
 
                   {/* Quick tags */}
                   <div className="space-y-2">
-                    <p className="text-xs text-slate-500">แท็กยอดนิยม - คลิกเพื่อเพิ่ม</p>
+                    <p className="text-xs text-slate-500">แท็กยอดนิยม — คลิกเพื่อเพิ่ม</p>
                     <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-2 rounded-lg bg-slate-50 border border-slate-200">
                       {tagOptions.map((tag) => {
                         const selected = normalizedTags.has(tag.toLowerCase())
@@ -1268,15 +1414,274 @@ export default function UploadVideoPage() {
                           ))}
                         </div>
                       )}
-                      {errors.allowedDomainIds && <p className="text-sm text-red-500">{errors.allowedDomainIds}</p>}
+                      {errors.allowedDomainIds && (
+                        <p className="text-sm text-red-500">{errors.allowedDomainIds}</p>
+                      )}
                     </div>
                   )}
                 </div>
               </div>
             )}
 
-            {/* Step 4: Review & Upload */}
+            {/* ── Step 4: SEO Check ─────────────────────────────────────────── */}
             {currentStep === 4 && (
+              <div className="p-6 sm:p-8 space-y-6">
+                {/* Header */}
+                <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
+                  <div className="p-2 bg-indigo-100 rounded-lg">
+                    <BarChart2 className="h-5 w-5 text-indigo-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-slate-900">ตรวจคะแนน SEO</h2>
+                    <p className="text-sm text-slate-500">
+                      ตรวจสอบคุณภาพข้อมูลก่อนอัปโหลด — ต้องได้คะแนน {SEO_PASS_SCORE}/100 ขึ้นไป
+                    </p>
+                  </div>
+                </div>
+
+                {/* Stale warning */}
+                {seoIsStale && (
+                  <div className="flex items-center gap-3 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
+                    <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                    <span>ข้อมูลวิดีโอมีการเปลี่ยนแปลง กรุณาตรวจ SEO ใหม่อีกครั้ง</span>
+                  </div>
+                )}
+
+                {/* Idle state */}
+                {seoStatus === "idle" && (
+                  <div className="flex flex-col items-center justify-center py-10 gap-4">
+                    <div className="p-4 bg-slate-100 rounded-full">
+                      <BarChart2 className="h-10 w-10 text-slate-400" />
+                    </div>
+                    <div className="text-center">
+                      <p className="font-medium text-slate-700 mb-1">พร้อมตรวจคะแนน SEO</p>
+                      <p className="text-sm text-slate-500">
+                        ระบบจะตรวจสอบชื่อ, Target keyword, คำอธิบาย, แท็ก และรูปหน้าปก
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      onClick={() => handleRunSeo()}
+                      className="gap-2 bg-indigo-600 hover:bg-indigo-700 px-6"
+                    >
+                      <BarChart2 className="h-4 w-4" />
+                      เริ่มตรวจ SEO
+                    </Button>
+                  </div>
+                )}
+
+                {/* Running state */}
+                {seoStatus === "running" && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <Loader2 className="h-5 w-5 text-indigo-600 animate-spin flex-shrink-0" />
+                      <div className="flex-1">
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-slate-600 font-medium">กำลังตรวจสอบ...</span>
+                          <span className="text-indigo-600 font-medium">{seoProgress}%</span>
+                        </div>
+                        <Progress value={seoProgress} className="h-2" />
+                      </div>
+                    </div>
+
+                    {/* Streaming check results */}
+                    <div className="space-y-2">
+                      {seoChecks.map((check) => (
+                        <div
+                          key={check.key}
+                          className={`flex items-start gap-3 p-3 rounded-lg border ${
+                            check.passed
+                              ? "bg-emerald-50 border-emerald-200"
+                              : "bg-red-50 border-red-200"
+                          }`}
+                        >
+                          <div
+                            className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center mt-0.5 ${
+                              check.passed ? "bg-emerald-500" : "bg-red-500"
+                            }`}
+                          >
+                            {check.passed ? (
+                              <Check className="h-3 w-3 text-white" />
+                            ) : (
+                              <X className="h-3 w-3 text-white" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-sm font-medium text-slate-800">{check.label}</p>
+                              <span className="text-xs text-slate-500 flex-shrink-0">
+                                {check.earned}/{check.weight}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-600 mt-0.5">{check.message}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Done state */}
+                {seoStatus === "done" && (
+                  <div className="space-y-5">
+                    {/* Score card */}
+                    <div
+                      className={`rounded-xl border-2 p-5 ${
+                        seoPassed
+                          ? "bg-emerald-50 border-emerald-300"
+                          : "bg-red-50 border-red-300"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          {seoPassed ? (
+                            <div className="p-1.5 bg-emerald-500 rounded-full">
+                              <Check className="h-4 w-4 text-white" />
+                            </div>
+                          ) : (
+                            <div className="p-1.5 bg-red-500 rounded-full">
+                              <X className="h-4 w-4 text-white" />
+                            </div>
+                          )}
+                          <span className={`font-semibold text-lg ${seoPassed ? "text-emerald-800" : "text-red-800"}`}>
+                            {seoPassed ? "ผ่าน SEO" : "ไม่ผ่าน SEO"}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span
+                            className={`text-3xl font-bold ${seoPassed ? "text-emerald-700" : "text-red-700"}`}
+                          >
+                            {seoScore}
+                          </span>
+                          <span className="text-slate-500 text-lg">/100</span>
+                        </div>
+                      </div>
+                      <Progress
+                        value={seoScore ?? 0}
+                        className={`h-3 ${seoPassed ? "[&>div]:bg-emerald-500" : "[&>div]:bg-red-500"}`}
+                      />
+                      <p className={`text-xs mt-2 ${seoPassed ? "text-emerald-700" : "text-red-700"}`}>
+                        เกณฑ์ผ่าน: {SEO_PASS_SCORE}/100 คะแนน และต้องผ่านเงื่อนไขสำคัญทุกข้อ
+                      </p>
+                    </div>
+
+                    {/* Check results */}
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-semibold text-slate-700">รายการตรวจสอบ</h3>
+                      {seoChecks.map((check) => (
+                        <div
+                          key={check.key}
+                          className={`rounded-lg border overflow-hidden ${
+                            check.passed ? "border-emerald-200" : "border-red-200"
+                          }`}
+                        >
+                          <div
+                            className={`flex items-center gap-3 px-4 py-3 ${
+                              check.passed ? "bg-emerald-50" : "bg-red-50"
+                            }`}
+                          >
+                            <div
+                              className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center ${
+                                check.passed ? "bg-emerald-500" : "bg-red-500"
+                              }`}
+                            >
+                              {check.passed ? (
+                                <Check className="h-3 w-3 text-white" />
+                              ) : (
+                                <X className="h-3 w-3 text-white" />
+                              )}
+                            </div>
+                            <span className="flex-1 text-sm font-medium text-slate-800">{check.label}</span>
+                            {check.isCritical && (
+                              <Badge variant="outline" className="text-xs border-amber-400 text-amber-600">
+                                สำคัญ
+                              </Badge>
+                            )}
+                            <span className="text-xs text-slate-500">
+                              {check.earned}/{check.weight}
+                            </span>
+                          </div>
+                          {(!check.passed || check.suggestion) && (
+                            <div className="px-4 py-2 bg-white border-t border-slate-100 space-y-1">
+                              <p className="text-xs text-slate-600">{check.message}</p>
+                              {!check.passed && check.suggestion && (
+                                <p className="text-xs text-amber-700 flex items-start gap-1">
+                                  <ChevronRight className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                                  {check.suggestion}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Recommendations */}
+                    {seoRecommendations.length > 0 && (
+                      <div className="p-4 rounded-xl bg-amber-50 border border-amber-200">
+                        <p className="text-sm font-semibold text-amber-800 mb-2 flex items-center gap-2">
+                          <AlertTriangle className="h-4 w-4" />
+                          คำแนะนำในการปรับปรุง
+                        </p>
+                        <ul className="space-y-1">
+                          {seoRecommendations.map((rec, i) => (
+                            <li key={i} className="text-xs text-amber-700 flex items-start gap-1.5">
+                              <span className="mt-0.5 flex-shrink-0">•</span>
+                              {rec}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    <div className="flex flex-wrap gap-3 pt-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => handleRunSeo()}
+                        disabled={isGenerating}
+                        className="gap-2"
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                        ตรวจใหม่
+                      </Button>
+
+                      {!seoPassed && (
+                        <Button
+                          type="button"
+                          onClick={handleGenerate}
+                          disabled={isGenerating}
+                          className="gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700"
+                        >
+                          {isGenerating ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              กำลัง Generate...
+                            </>
+                          ) : (
+                            <>
+                              <TrendingUp className="h-4 w-4" />
+                              Generate ใหม่ (คะแนนสูงสุด)
+                            </>
+                          )}
+                        </Button>
+                      )}
+
+                      {seoPassed && (
+                        <div className="flex items-center gap-2 text-emerald-700 text-sm font-medium">
+                          <Check className="h-4 w-4" />
+                          SEO ผ่านแล้ว — กดถัดไปเพื่ออัปโหลด
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Step 5: Review & Upload ───────────────────────────────────── */}
+            {currentStep === 5 && (
               <div className="p-6 sm:p-8 space-y-6">
                 <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
                   <div className="p-2 bg-indigo-100 rounded-lg">
@@ -1288,18 +1693,51 @@ export default function UploadVideoPage() {
                   </div>
                 </div>
 
+                {/* SEO gate banner */}
+                {seoPassed !== true && (
+                  <div className="flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-200">
+                    <AlertTriangle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-red-800">ยังไม่ผ่านการตรวจ SEO</p>
+                      <p className="text-xs text-red-600 mt-1">
+                        {seoStatus === "idle"
+                          ? "กรุณากลับไปขั้นตอนที่ 4 เพื่อเริ่มตรวจ SEO ก่อนอัปโหลด"
+                          : `คะแนน SEO (${seoScore ?? 0}/100) ต่ำกว่าเกณฑ์ กรุณากลับไปแก้ไขหรือกด Generate ใหม่`}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setCurrentStep(4)}
+                      className="ml-auto flex-shrink-0 border-red-300 text-red-700 hover:bg-red-100"
+                    >
+                      ไปขั้นตอน SEO
+                    </Button>
+                  </div>
+                )}
+
+                {/* SEO score summary if passed */}
+                {seoPassed === true && (
+                  <div className="flex items-center gap-3 p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+                    <div className="p-1.5 bg-emerald-500 rounded-full">
+                      <Check className="h-3 w-3 text-white" />
+                    </div>
+                    <span className="text-sm text-emerald-800 font-medium">
+                      SEO ผ่านแล้ว — คะแนน {seoScore}/100
+                    </span>
+                  </div>
+                )}
+
                 {/* Preview */}
                 <div className="grid gap-6 lg:grid-cols-2">
-                  {/* Video Preview */}
                   <div className="space-y-4">
                     <h3 className="font-medium text-slate-900">ตัวอย่างวิดีโอ</h3>
                     <div className="relative aspect-video rounded-xl overflow-hidden bg-slate-900">
                       {videoPreview ? (
                         <video src={videoPreview} controls className="w-full h-full object-contain" />
                       ) : (
-                        <div className="flex items-center justify-center h-full text-slate-500">
-                          ไม่มีตัวอย่าง
-                        </div>
+                        <div className="flex items-center justify-center h-full text-slate-500">ไม่มีตัวอย่าง</div>
                       )}
                     </div>
                     {thumbnailPreview && (
@@ -1314,7 +1752,6 @@ export default function UploadVideoPage() {
                     )}
                   </div>
 
-                  {/* Info Summary */}
                   <div className="space-y-4">
                     <h3 className="font-medium text-slate-900">ข้อมูลวิดีโอ</h3>
                     <div className="space-y-3 text-sm">
@@ -1332,6 +1769,10 @@ export default function UploadVideoPage() {
                         <span className="text-slate-500">ชื่อ</span>
                         <span className="font-medium truncate ml-4">{title || "-"}</span>
                       </div>
+                      <div className="flex justify-between py-2 border-b border-slate-100">
+                        <span className="text-slate-500">Target keyword</span>
+                        <span className="font-medium truncate ml-4">{targetKeyword || "-"}</span>
+                      </div>
                       {isAv && studio && (
                         <div className="flex justify-between py-2 border-b border-slate-100">
                           <span className="text-slate-500">ค่ายหนัง</span>
@@ -1345,7 +1786,11 @@ export default function UploadVideoPage() {
                       <div className="flex justify-between py-2 border-b border-slate-100">
                         <span className="text-slate-500">การเผยแพร่</span>
                         <span className="font-medium">
-                          {visibility === "PUBLIC" ? "🌐 สาธารณะ" : visibility === "PRIVATE" ? "🔒 ส่วนตัว" : "🔗 เจาะจงโดเมน"}
+                          {visibility === "PUBLIC"
+                            ? "🌐 สาธารณะ"
+                            : visibility === "PRIVATE"
+                              ? "🔒 ส่วนตัว"
+                              : "🔗 เจาะจงโดเมน"}
                         </span>
                       </div>
                       {actors.length > 0 && (
@@ -1395,7 +1840,7 @@ export default function UploadVideoPage() {
               </div>
             )}
 
-            {/* Navigation Footer */}
+            {/* ── Navigation Footer ──────────────────────────────────────────── */}
             <div className="flex items-center justify-between p-6 bg-slate-50 border-t border-slate-200">
               <Button
                 type="button"
@@ -1412,16 +1857,21 @@ export default function UploadVideoPage() {
                 ขั้นตอน {currentStep} จาก {steps.length}
               </div>
 
-              {currentStep < 4 ? (
-                <Button type="button" onClick={handleNext} className="gap-2 bg-indigo-600 hover:bg-indigo-700">
+              {currentStep < steps.length ? (
+                <Button
+                  type="button"
+                  onClick={handleNext}
+                  disabled={currentStep === 4 && seoStatus === "running"}
+                  className="gap-2 bg-indigo-600 hover:bg-indigo-700"
+                >
                   ถัดไป
                   <ArrowRight className="h-4 w-4" />
                 </Button>
               ) : (
                 <Button
                   type="submit"
-                  disabled={loading}
-                  className="gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700"
+                  disabled={loading || seoPassed !== true}
+                  className="gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:opacity-60"
                 >
                   {loading ? (
                     <>
@@ -1451,7 +1901,8 @@ export default function UploadVideoPage() {
               <ul className="text-slate-500 space-y-1">
                 <li>• รองรับไฟล์ MP4, WebM, MOV, AVI, TS ขนาดไม่เกิน 20GB</li>
                 <li>• รูปหน้าปกแนะนำขนาด 1280x720 พิกเซล</li>
-                <li>• ใส่แท็กที่เกี่ยวข้องเพื่อให้ค้นหาได้ง่าย</li>
+                <li>• ใส่แท็กที่เกี่ยวข้องและกรอกคำอธิบายเพื่อคะแนน SEO ที่ดี</li>
+                <li>• ต้องผ่านการตรวจ SEO (ขั้นตอนที่ 4) จึงจะอัปโหลดได้</li>
               </ul>
             </div>
           </div>

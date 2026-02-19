@@ -15,6 +15,7 @@ const mapCategories = (categories?: Array<{ id: string; name: string }> | null) 
 const mapPluginVideo = (video: {
   id: string
   title: string
+  targetKeyword: string
   description: string | null
   movieCode: string | null
   studio: string | null
@@ -33,6 +34,7 @@ const mapPluginVideo = (video: {
   return {
     id: video.id,
     title: video.title,
+    target_keyword: video.targetKeyword,
     description: video.description ?? "",
     movie_code: video.movieCode ?? null,
     studio: video.studio ?? null,
@@ -230,6 +232,7 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
       where: { id: params.id },
       data: {
         title: validatedData.title,
+        targetKeyword: validatedData.targetKeyword,
         description: validatedData.description,
         movieCode: shouldUpdateMovieFields ? validatedData.movieCode : undefined,
         studio: shouldUpdateMovieFields ? validatedData.studio : undefined,

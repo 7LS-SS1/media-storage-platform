@@ -75,6 +75,7 @@ model Studio {
 model Video {
   id           String          @id @default(cuid())
   title        String
+  targetKeyword String         @default("") @map("target_keyword")
   description  String?
   movieCode    String?         @map("movie_code")
   studio       String?         @map("studio")
@@ -107,6 +108,7 @@ model Video {
   @@index([status])
   @@index([visibility])
   @@index([storageBucket])
+  @@index([targetKeyword])
   @@map("videos")
 }
 

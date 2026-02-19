@@ -14,6 +14,11 @@ const toTitle = (key: string) => {
   return base.replace(/[-_]+/g, " ").trim().slice(0, 200) || "Untitled video"
 }
 
+const toTargetKeyword = (title: string) => {
+  const normalized = title.replace(/\s+/g, " ").trim()
+  return (normalized || "video").slice(0, 120)
+}
+
 const parseLimit = (value: unknown) => {
   if (typeof value === "number" && Number.isFinite(value)) return value
   if (typeof value === "string") {
@@ -139,29 +144,35 @@ const handleSync = async (
 
     if (toCreate.length > 0) {
       await prisma.video.createMany({
-        data: toCreate.map((item) => ({
-          title: toTitle(item.key),
-          description: null,
-          videoUrl: getPublicR2Url(item.key, options.bucket),
-          thumbnailUrl: null,
-          duration: null,
-          fileSize: item.size === undefined ? null : BigInt(item.size),
-          mimeType: "video/mp4",
-          visibility: "PUBLIC",
-          status: "READY",
-          transcodeProgress: 100,
-          storageBucket: options.bucket,
-          createdById: user.userId,
-        })),
+        data: toCreate.map((item) => {
+          const title = toTitle(item.key)
+          return {
+            title,
+            targetKeyword: toTargetKeyword(title),
+            description: null,
+            videoUrl: getPublicR2Url(item.key, options.bucket),
+            thumbnailUrl: null,
+            duration: null,
+            fileSize: item.size === undefined ? null : BigInt(item.size),
+            mimeType: "video/mp4",
+            visibility: "PUBLIC",
+            status: "READY",
+            transcodeProgress: 100,
+            storageBucket: options.bucket,
+            createdById: user.userId,
+          }
+        }),
       })
     }
 
     if (toCreateTs.length > 0) {
       await Promise.all(
         toCreateTs.map(async (item) => {
+          const title = toTitle(item.key)
           const video = await prisma.video.create({
             data: {
-              title: toTitle(item.key),
+              title,
+              targetKeyword: toTargetKeyword(title),
               description: null,
               videoUrl: getPublicR2Url(item.key, options.bucket),
               thumbnailUrl: null,

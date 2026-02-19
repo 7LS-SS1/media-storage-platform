@@ -5,6 +5,7 @@ import { TAG_LIMIT } from "@/lib/tag-constraints"
 export const createVideoSchema = z
   .object({
     title: z.string().min(1, "Title is required").max(200),
+    targetKeyword: z.string().trim().min(1, "Target keyword is required").max(120),
     description: z.string().max(2000).optional(),
     movieCode: z.string().max(100).optional().nullable(),
     studio: z.string().max(200).optional().nullable(),
@@ -35,6 +36,7 @@ export const createVideoSchema = z
 export const updateVideoSchema = z
   .object({
     title: z.string().min(1).max(200).optional(),
+    targetKeyword: z.string().trim().min(1).max(120).optional(),
     description: z.string().max(2000).optional().nullable(),
     movieCode: z.string().max(100).optional().nullable(),
     studio: z.string().max(200).optional().nullable(),

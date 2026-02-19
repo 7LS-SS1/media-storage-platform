@@ -17,6 +17,7 @@ const mapCategories = (categories?: Array<{ id: string; name: string }> | null) 
 const mapPluginVideo = (video: {
   id: string
   title: string
+  targetKeyword: string
   description: string | null
   movieCode: string | null
   studio: string | null
@@ -35,6 +36,7 @@ const mapPluginVideo = (video: {
   return {
     id: video.id,
     title: video.title,
+    target_keyword: video.targetKeyword,
     description: video.description ?? "",
     movie_code: video.movieCode ?? null,
     studio: video.studio ?? null,
@@ -123,6 +125,7 @@ export async function POST(request: NextRequest) {
     const video = await prisma.video.create({
       data: {
         title: validatedData.title,
+        targetKeyword: validatedData.targetKeyword,
         description: validatedData.description,
         movieCode: validatedData.movieCode ?? undefined,
         studio: validatedData.studio ?? undefined,

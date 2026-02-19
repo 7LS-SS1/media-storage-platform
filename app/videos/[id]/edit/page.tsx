@@ -37,6 +37,7 @@ interface VideoAllowedDomain {
 interface Video {
   id: string
   title: string
+  targetKeyword?: string | null
   description: string | null
   actors: string[]
   tags: string[]
@@ -61,6 +62,7 @@ export default function EditVideoPage({ params }: PageProps) {
   const { id } = React.use(params)
   const router = useRouter()
   const [title, setTitle] = useState("")
+  const [targetKeyword, setTargetKeyword] = useState("")
   const [description, setDescription] = useState("")
   const [actors, setActors] = useState<string[]>([])
   const [tags, setTags] = useState<string[]>([])
@@ -138,6 +140,7 @@ export default function EditVideoPage({ params }: PageProps) {
         if (!cancelled) {
           const video = videoData.video
           setTitle(video.title ?? "")
+          setTargetKeyword(video.targetKeyword ?? "")
           setDescription(video.description ?? "")
           setActors(video.actors ?? [])
           setTags(video.tags ?? [])
@@ -373,6 +376,9 @@ export default function EditVideoPage({ params }: PageProps) {
     if (!title.trim()) {
       nextErrors.title = "Title is required"
     }
+    if (!targetKeyword.trim()) {
+      nextErrors.targetKeyword = "Target keyword is required"
+    }
     if (tags.length > TAG_LIMIT) {
       nextErrors.tags = tagLimitMessage
       setTagError(tagLimitMessage)
@@ -410,6 +416,7 @@ export default function EditVideoPage({ params }: PageProps) {
         credentials: "include",
         body: JSON.stringify({
           title: title.trim(),
+          targetKeyword: targetKeyword.trim(),
           description: description.trim() ? description.trim() : null,
           actors,
           tags,
@@ -498,6 +505,17 @@ export default function EditVideoPage({ params }: PageProps) {
                       onChange={(event) => setTitle(event.target.value)}
                     />
                     {errors.title && <p className="text-sm text-destructive">{errors.title}</p>}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="target-keyword">คีย์เวิร์ดหลัก (Target keyword)</Label>
+                    <Input
+                      id="target-keyword"
+                      placeholder="ระบุคีย์เวิร์ดหลัก 1 คำ/วลี"
+                      value={targetKeyword}
+                      onChange={(event) => setTargetKeyword(event.target.value)}
+                    />
+                    {errors.targetKeyword && <p className="text-sm text-destructive">{errors.targetKeyword}</p>}
                   </div>
 
                   <div className="space-y-2">
