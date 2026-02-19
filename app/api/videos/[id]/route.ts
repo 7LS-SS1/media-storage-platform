@@ -16,6 +16,9 @@ const mapPluginVideo = (video: {
   id: string
   title: string
   description: string | null
+  movieCode: string | null
+  studio: string | null
+  releaseDate: Date | null
   videoUrl: string
   thumbnailUrl: string | null
   storageBucket: string
@@ -31,6 +34,9 @@ const mapPluginVideo = (video: {
     id: video.id,
     title: video.title,
     description: video.description ?? "",
+    movie_code: video.movieCode ?? null,
+    studio: video.studio ?? null,
+    release_date: video.releaseDate ?? null,
     video_url: normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl,
     playback_url:
       toPublicPlaybackUrl(video.videoUrl, bucket) ?? normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl,
