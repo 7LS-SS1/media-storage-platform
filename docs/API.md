@@ -14,6 +14,7 @@ All authenticated requests require either:
 For all API endpoints:
 - If you use **Authorization header**, request domain must match an **active** domain in \`/api/domains\`.
 - The API validates domain from \`Origin\` (preferred) or \`Referer\` headers.
+- In production, local domains (\`localhost\`, \`127.0.0.1\`, \`::1\`, \`.local\`) are rejected even if present in allowlist.
 
 ---
 

@@ -3,7 +3,7 @@ import { createHash } from "crypto"
 import { jwtVerify, SignJWT } from "jose"
 import bcrypt from "bcryptjs"
 import { prisma } from "@/lib/prisma"
-import { isDomainCheckRequired, isRequestDomainAllowed } from "@/lib/domain-security"
+import { getRequestingDomain, isDomainCheckRequired, isRequestDomainAllowed } from "@/lib/domain-security"
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || "your-secret-key-change-in-production")
 
@@ -50,15 +50,21 @@ export async function getUserFromRequest(request: NextRequest): Promise<JWTPaylo
 
   if (headerToken) {
     if (isDomainCheckRequired(request.nextUrl.pathname)) {
+      const requestDomain = getRequestingDomain(request)
       const isAllowedDomain = await isRequestDomainAllowed(request)
       if (!isAllowedDomain) {
         console.warn("Blocked token request from non-allowed domain", {
           path: request.nextUrl.pathname,
+          domain: requestDomain,
           origin: request.headers.get("origin"),
           referer: request.headers.get("referer"),
         })
         return null
       }
+      console.info("Accepted token request from allowed domain", {
+        path: request.nextUrl.pathname,
+        domain: requestDomain,
+      })
     }
 
     const jwtPayload = await verifyToken(headerToken)

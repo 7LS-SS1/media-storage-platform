@@ -14,6 +14,30 @@ export function domainsMatch(left: string, right: string): boolean {
   return normalizeDomain(left) === normalizeDomain(right)
 }
 
+function isProductionEnvironment(): boolean {
+  return process.env.NODE_ENV === "production"
+}
+
+function isLocalDomain(domain: string): boolean {
+  const normalized = normalizeDomain(domain)
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "::1" ||
+    normalized.endsWith(".local")
+  )
+}
+
+function isAllowedDomainEntry(domain: string): boolean {
+  if (!isProductionEnvironment()) return true
+  return !isLocalDomain(domain)
+}
+
+export function isRequestDomainAcceptable(domain: string): boolean {
+  if (!isProductionEnvironment()) return true
+  return !isLocalDomain(domain)
+}
+
 /**
  * Extract domain from URL
  */
@@ -53,6 +77,7 @@ export async function isDomainAllowedForVideo(videoId: string, domain: string): 
   if (video.visibility === "DOMAIN_RESTRICTED") {
     const allowedDomains = video.allowedDomains
       .filter((ad) => ad.domain.isActive)
+      .filter((ad) => isAllowedDomainEntry(ad.domain.domain))
       .map((ad) => ad.domain.domain)
 
     // Check if the requesting domain matches any allowed domain
@@ -63,11 +88,17 @@ export async function isDomainAllowedForVideo(videoId: string, domain: string): 
 }
 
 export async function isDomainGloballyAllowed(domain: string): Promise<boolean> {
+  if (!isRequestDomainAcceptable(domain)) {
+    return false
+  }
+
   const allowedDomains = await prisma.allowedDomain.findMany({
     where: { isActive: true },
     select: { domain: true },
   })
-  return allowedDomains.some((allowedDomain) => domainsMatch(domain, allowedDomain.domain))
+  return allowedDomains.some(
+    (allowedDomain) => isAllowedDomainEntry(allowedDomain.domain) && domainsMatch(domain, allowedDomain.domain),
+  )
 }
 
 export function isDomainCheckRequired(pathname: string): boolean {
