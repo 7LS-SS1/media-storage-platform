@@ -1,0 +1,23 @@
+Frame,Lane,Title,Description,Owner,ETA,DependsOn,Priority,Status
+Migration Execution Kanban,Backlog,Confirm production baseline,Lock target commit hash and migration window,Tech Lead,0.25d,None,Critical,Todo
+Migration Execution Kanban,Backlog,Export Vercel env,Pull production env using Vercel CLI,Backend,0.25d,Confirm production baseline,High,Todo
+Migration Execution Kanban,Backlog,Build VPS env file,Create sanitized .env.vps.production and verify required keys,Backend,0.5d,Export Vercel env,High,Todo
+Migration Execution Kanban,Backlog,Provision Hostinger VPS,Create Ubuntu 24.04 server with SSH keys,Infra Lead,0.5d,None,Critical,Todo
+Migration Execution Kanban,Backlog,Harden OS,Apply updates firewall and fail2ban baseline,Infra Lead,0.5d,Provision Hostinger VPS,High,Todo
+Migration Execution Kanban,Backlog,Install Docker stack,Install Docker Engine and Docker Compose,Infra Lead,0.25d,Harden OS,High,Todo
+Migration Execution Kanban,Backlog,Install ffmpeg,Install ffmpeg and ffprobe on worker host,Infra Lead,0.25d,Harden OS,High,Todo
+Migration Execution Kanban,Backlog,Install Coolify,Install and bootstrap Coolify control panel,DevOps,0.5d,Install Docker stack,Critical,Todo
+Migration Execution Kanban,Backlog,Create Neon production project,Prepare pooled and direct connection URLs,DBA,0.25d,None,Critical,Todo
+Migration Execution Kanban,Backlog,Create R2 credentials,Generate media and jav bucket access credentials,Infra Lead,0.25d,None,Critical,Todo
+Migration Execution Kanban,Backlog,Create web service in Coolify,Deploy Next.js app service from Git branch main,Backend,0.5d,Install Coolify,High,Todo
+Migration Execution Kanban,Backlog,Create worker service in Coolify,Deploy transcode worker service from same repo,Backend,0.5d,Install Coolify,High,Todo
+Migration Execution Kanban,Backlog,Set app env vars,Set DB JWT and R2 vars on web service,Backend,0.25d,Create web service in Coolify,Critical,Todo
+Migration Execution Kanban,Backlog,Set worker env vars,Set DB R2 ffmpeg and TRANSCODE_MODE vars on worker,Backend,0.25d,Create worker service in Coolify,Critical,Todo
+Migration Execution Kanban,Backlog,Run Prisma migrate deploy,Apply schema migrations using direct URL override,Backend,0.25d,Set app env vars,Critical,Todo
+Migration Execution Kanban,Backlog,Smoke test app API,Validate auth listing and upload endpoints,QA,0.5d,Run Prisma migrate deploy,High,Todo
+Migration Execution Kanban,Backlog,Smoke test transcode queue,Queue test clip and verify worker completion,QA,0.5d,Set worker env vars,Critical,Todo
+Migration Execution Kanban,Backlog,Long clip load test,Run at least one long duration transcode test,QA,0.5d,Smoke test transcode queue,Critical,Todo
+Migration Execution Kanban,Backlog,Prepare DNS cutover,Lower TTL and pre-validate domain mapping,Infra Lead,0.25d,Smoke test app API,High,Todo
+Migration Execution Kanban,Backlog,Go-live cutover,Switch DNS from Vercel to VPS endpoint,PM,0.25d,Prepare DNS cutover,Critical,Todo
+Migration Execution Kanban,Backlog,Post-go-live monitoring,Watch errors queue depth and worker health for 72h,Team,3d,Go-live cutover,Critical,Todo
+Migration Execution Kanban,Backlog,Rollback readiness check,Keep Vercel rollback route ready until stabilization,PM,0.25d,Go-live cutover,High,Todo

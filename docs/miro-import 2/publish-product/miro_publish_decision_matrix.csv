@@ -1,0 +1,9 @@
+Frame,Category,Option,Score,Pros,Cons,BestFor,Recommended,Status
+Decision Matrix,OS,Ubuntu 24.04 LTS,95,Stable long support broad community and Docker friendly,None significant for this stack,Next.js Prisma worker stack,Yes,Approved
+Decision Matrix,OS,Debian 12,85,Stable lightweight and secure,Slightly slower package freshness,Conservative production teams,No,Alternative
+Decision Matrix,OS,Rocky Linux 9,78,Enterprise style lifecycle,More setup friction for Node ecosystem,Ops teams standardized on RHEL,No,Alternative
+Decision Matrix,Web Management,Coolify,95,Popular OSS Git based deploy and multi-service support,Requires basic DevOps familiarity,Teams deploying app plus background worker,Yes,Approved
+Decision Matrix,Web Management,Plesk,80,Commercial polished UI and support,License cost and less flexible for worker workflows,Classic web hosting operations,No,Alternative
+Decision Matrix,Web Management,CyberPanel,72,Familiar hosting panel and easy SSL,Less ideal for app plus worker GitOps flow,Shared hosting style usage,No,Alternative
+Decision Matrix,Web Management,HestiaCP,68,Simple lightweight control panel,Not optimized for containerized multi-service apps,Small static or LAMP workloads,No,Alternative
+Decision Matrix,Database,Neon PostgreSQL,93,Serverless Postgres branching pooled connections and good DX,Need clear pooled vs direct URL strategy,Prisma and API workloads,Yes,Approved
