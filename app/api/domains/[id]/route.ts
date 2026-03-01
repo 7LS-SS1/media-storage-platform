@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { getUserFromRequest } from "@/lib/auth"
+import { extractDomain, normalizeDomain } from "@/lib/domain-security"
 import { prisma } from "@/lib/prisma"
 import { createDomainSchema } from "@/lib/validation"
 import { canManageDomains } from "@/lib/roles"
@@ -13,6 +14,17 @@ const updateDomainSchema = z
   .refine((data) => data.domain || data.isActive !== undefined, {
     message: "No fields to update",
   })
+
+const normalizeDomainInput = (value: string): string => {
+  if (value.startsWith("http://") || value.startsWith("https://")) {
+    const extracted = extractDomain(value)
+    if (!extracted) {
+      throw new Error("Invalid domain URL")
+    }
+    return normalizeDomain(extracted)
+  }
+  return normalizeDomain(value)
+}
 
 // PATCH - Update allowed domain
 export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -28,11 +40,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     const updateData: { domain?: string; isActive?: boolean } = {}
 
     if (validatedData.domain) {
-      let domain = validatedData.domain
-      if (domain.startsWith("http://") || domain.startsWith("https://")) {
-        domain = new URL(domain).hostname
-      }
-      updateData.domain = domain
+      updateData.domain = normalizeDomainInput(validatedData.domain)
     }
 
     if (typeof validatedData.isActive === "boolean") {

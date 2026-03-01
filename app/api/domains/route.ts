@@ -1,8 +1,20 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
+import { extractDomain, normalizeDomain } from "@/lib/domain-security"
 import { prisma } from "@/lib/prisma"
 import { createDomainSchema } from "@/lib/validation"
 import { canManageDomains } from "@/lib/roles"
+
+const normalizeDomainInput = (value: string): string => {
+  if (value.startsWith("http://") || value.startsWith("https://")) {
+    const extracted = extractDomain(value)
+    if (!extracted) {
+      throw new Error("Invalid domain URL")
+    }
+    return normalizeDomain(extracted)
+  }
+  return normalizeDomain(value)
+}
 
 // POST - Add allowed domain (Admin only)
 export async function POST(request: NextRequest) {
@@ -15,11 +27,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const validatedData = createDomainSchema.parse(body)
 
-    // Normalize domain
-    let domain = validatedData.domain
-    if (domain.startsWith("http://") || domain.startsWith("https://")) {
-      domain = new URL(domain).hostname
-    }
+    const domain = normalizeDomainInput(validatedData.domain)
 
     const allowedDomain = await prisma.allowedDomain.create({
       data: { domain },

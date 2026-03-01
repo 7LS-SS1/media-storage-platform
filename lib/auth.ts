@@ -3,6 +3,7 @@ import { createHash } from "crypto"
 import { jwtVerify, SignJWT } from "jose"
 import bcrypt from "bcryptjs"
 import { prisma } from "@/lib/prisma"
+import { isDomainCheckRequired, isRequestDomainAllowed } from "@/lib/domain-security"
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || "your-secret-key-change-in-production")
 
@@ -43,10 +44,18 @@ export function hashApiToken(token: string): string {
  * Get user from request
  */
 export async function getUserFromRequest(request: NextRequest): Promise<JWTPayload | null> {
-  const headerToken = request.headers.get("authorization")?.replace("Bearer ", "")
+  const authHeader = request.headers.get("authorization")
+  const headerToken = authHeader?.replace(/^Bearer\s+/i, "")
   const cookieToken = request.cookies.get("token")?.value
 
   if (headerToken) {
+    if (isDomainCheckRequired(request.nextUrl.pathname)) {
+      const isAllowedDomain = await isRequestDomainAllowed(request)
+      if (!isAllowedDomain) {
+        return null
+      }
+    }
+
     const jwtPayload = await verifyToken(headerToken)
     if (jwtPayload) {
       return jwtPayload
