@@ -2,10 +2,7 @@ import type { NextRequest } from "next/server"
 import { prisma } from "./prisma"
 
 export const DOMAIN_ENFORCED_API_PREFIXES = [
-  "/api/videos",
-  "/api/media/videos",
-  "/api/av/videos",
-  "/api/plugin/videos",
+  "/api/",
   "/videos",
 ]
 

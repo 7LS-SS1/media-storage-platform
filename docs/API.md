@@ -11,7 +11,7 @@ All authenticated requests require either:
 - **Cookie**: \`token\` (set automatically on login)
 - **Header**: \`Authorization: Bearer <token>\`
 
-For video/plugin APIs that return playback data (\`/api/videos\`, \`/api/media/videos\`, \`/api/av/videos\`, \`/api/plugin/videos\`):
+For all API endpoints:
 - If you use **Authorization header**, request domain must match an **active** domain in \`/api/domains\`.
 - The API validates domain from \`Origin\` (preferred) or \`Referer\` headers.
 

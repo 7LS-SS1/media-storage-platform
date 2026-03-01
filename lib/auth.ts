@@ -52,6 +52,11 @@ export async function getUserFromRequest(request: NextRequest): Promise<JWTPaylo
     if (isDomainCheckRequired(request.nextUrl.pathname)) {
       const isAllowedDomain = await isRequestDomainAllowed(request)
       if (!isAllowedDomain) {
+        console.warn("Blocked token request from non-allowed domain", {
+          path: request.nextUrl.pathname,
+          origin: request.headers.get("origin"),
+          referer: request.headers.get("referer"),
+        })
         return null
       }
     }
