@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { randomBytes } from "crypto"
 import { z } from "zod"
 import { getUserFromRequest, hashApiToken } from "@/lib/auth"
+import { isRequestDomainAcceptable, normalizeDomainInput } from "@/lib/domain-security"
 import { prisma } from "@/lib/prisma"
 import { canManageTokens } from "@/lib/roles"
 
@@ -12,12 +13,14 @@ const adminTokenSchema = z.object({
   name: z.string().min(1).max(100),
   expiresInDays: z.number().int().min(1).max(MAX_EXPIRY_DAYS).optional(),
   lifetime: z.boolean().optional(),
+  boundDomain: z.string().min(1).max(255).optional().nullable(),
 })
 
 const shapeTokenResponse = (token: {
   id: string
   name: string
   tokenLast4: string
+  boundDomain: string | null
   createdAt: Date
   expiresAt: Date | null
   lastUsedAt: Date | null
@@ -27,6 +30,7 @@ const shapeTokenResponse = (token: {
   id: token.id,
   name: token.name,
   last4: token.tokenLast4,
+  boundDomain: token.boundDomain,
   createdAt: token.createdAt,
   expiresAt: token.expiresAt,
   lastUsedAt: token.lastUsedAt,
@@ -83,6 +87,11 @@ export async function POST(request: NextRequest) {
     const isLifetime = validatedData.lifetime === true
     const expiresInDays = validatedData.expiresInDays ?? DEFAULT_EXPIRY_DAYS
     const expiresAt = isLifetime ? null : new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000)
+    const normalizedBoundDomain = validatedData.boundDomain ? normalizeDomainInput(validatedData.boundDomain) : null
+
+    if (normalizedBoundDomain && !isRequestDomainAcceptable(normalizedBoundDomain)) {
+      return NextResponse.json({ error: "Local domains are not allowed in production" }, { status: 400 })
+    }
 
     const rawToken = `api_${randomBytes(32).toString("hex")}`
     const tokenHash = hashApiToken(rawToken)
@@ -92,6 +101,7 @@ export async function POST(request: NextRequest) {
         name: validatedData.name.trim(),
         tokenHash,
         tokenLast4: rawToken.slice(-4),
+        boundDomain: normalizedBoundDomain,
         expiresAt,
         createdById: user.userId,
       },

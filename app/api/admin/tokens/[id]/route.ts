@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { getUserFromRequest } from "@/lib/auth"
+import { isRequestDomainAcceptable, normalizeDomainInput } from "@/lib/domain-security"
 import { prisma } from "@/lib/prisma"
 import { canManageTokens } from "@/lib/roles"
 
@@ -12,8 +13,9 @@ const updateTokenSchema = z
     expiresInDays: z.number().int().min(1).max(MAX_EXPIRY_DAYS).optional(),
     expiresAt: z.string().optional(),
     lifetime: z.boolean().optional(),
+    boundDomain: z.string().max(255).optional().nullable(),
   })
-  .refine((data) => data.name || data.expiresInDays || data.expiresAt || data.lifetime, {
+  .refine((data) => data.name || data.expiresInDays || data.expiresAt || data.lifetime || "boundDomain" in data, {
     message: "No fields to update",
   })
 
@@ -21,6 +23,7 @@ const shapeTokenResponse = (token: {
   id: string
   name: string
   tokenLast4: string
+  boundDomain: string | null
   createdAt: Date
   expiresAt: Date | null
   lastUsedAt: Date | null
@@ -30,6 +33,7 @@ const shapeTokenResponse = (token: {
   id: token.id,
   name: token.name,
   last4: token.tokenLast4,
+  boundDomain: token.boundDomain,
   createdAt: token.createdAt,
   expiresAt: token.expiresAt,
   lastUsedAt: token.lastUsedAt,
@@ -69,12 +73,23 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
       return NextResponse.json({ error: "expiresAt must be in the future" }, { status: 400 })
     }
 
-    const updateData: { name?: string; expiresAt?: Date | null } = {}
+    const updateData: { name?: string; expiresAt?: Date | null; boundDomain?: string | null } = {}
     if (validatedData.name) {
       updateData.name = validatedData.name.trim()
     }
     if (expiresAt !== undefined) {
       updateData.expiresAt = expiresAt
+    }
+    if ("boundDomain" in validatedData) {
+      if (!validatedData.boundDomain || validatedData.boundDomain.trim() === "") {
+        updateData.boundDomain = null
+      } else {
+        const normalizedBoundDomain = normalizeDomainInput(validatedData.boundDomain)
+        if (!isRequestDomainAcceptable(normalizedBoundDomain)) {
+          return NextResponse.json({ error: "Local domains are not allowed in production" }, { status: 400 })
+        }
+        updateData.boundDomain = normalizedBoundDomain
+      }
     }
 
     const apiToken = await prisma.apiToken.update({

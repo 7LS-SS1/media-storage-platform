@@ -173,6 +173,7 @@ model ApiToken {
   name        String
   tokenHash   String   @unique @map("token_hash")
   tokenLast4  String   @map("token_last4")
+  boundDomain String?  @map("bound_domain")
   expiresAt   DateTime? @map("expires_at")
   lastUsedAt  DateTime? @map("last_used_at")
   revokedAt   DateTime? @map("revoked_at")
@@ -185,5 +186,6 @@ model ApiToken {
 
   @@index([createdById])
   @@index([expiresAt])
+  @@index([boundDomain])
   @@map("api_tokens")
 }

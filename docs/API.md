@@ -15,6 +15,8 @@ For all API endpoints:
 - If you use **Authorization header**, request domain must match an **active** domain in \`/api/domains\`.
 - The API validates domain from \`Origin\` (preferred) or \`Referer\` headers.
 - In production, local domains (\`localhost\`, \`127.0.0.1\`, \`::1\`, \`.local\`) are rejected even if present in allowlist.
+- API tokens can optionally set \`boundDomain\`. When set, that token can only be used from that exact domain.
+- For backward compatibility, tokens without \`boundDomain\` still use global domain allowlist checks.
 
 ---
 

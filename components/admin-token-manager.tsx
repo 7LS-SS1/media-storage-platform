@@ -26,6 +26,7 @@ interface ApiTokenItem {
   id: string
   name: string
   last4: string
+  boundDomain: string | null
   createdAt: string
   expiresAt: string | null
   lastUsedAt: string | null
@@ -34,10 +35,12 @@ interface ApiTokenItem {
 
 export function AdminTokenManager() {
   const [tokenName, setTokenName] = useState("")
+  const [boundDomain, setBoundDomain] = useState("")
   const [expiresInDays, setExpiresInDays] = useState<string>(String(DEFAULT_EXPIRY_DAYS))
   const [isLifetime, setIsLifetime] = useState(false)
   const [token, setToken] = useState("")
   const [expiresAt, setExpiresAt] = useState<string | null>(null)
+  const [createdTokenBoundDomain, setCreatedTokenBoundDomain] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadingTokens, setLoadingTokens] = useState(true)
   const [forbidden, setForbidden] = useState(false)
@@ -45,6 +48,7 @@ export function AdminTokenManager() {
   const [tokens, setTokens] = useState<ApiTokenItem[]>([])
   const [editingToken, setEditingToken] = useState<ApiTokenItem | null>(null)
   const [editName, setEditName] = useState("")
+  const [editBoundDomain, setEditBoundDomain] = useState("")
   const [editExpiresInDays, setEditExpiresInDays] = useState("")
   const [editIsLifetime, setEditIsLifetime] = useState(false)
   const [editError, setEditError] = useState("")
@@ -84,6 +88,7 @@ export function AdminTokenManager() {
     setForbidden(false)
     setToken("")
     setExpiresAt(null)
+    setCreatedTokenBoundDomain(null)
     setLoading(true)
 
     try {
@@ -94,7 +99,13 @@ export function AdminTokenManager() {
       }
 
       const trimmed = expiresInDays.trim()
-      let payload: { name: string; expiresInDays?: number; lifetime?: boolean } = { name: tokenName.trim() }
+      let payload: { name: string; expiresInDays?: number; lifetime?: boolean; boundDomain?: string } = {
+        name: tokenName.trim(),
+      }
+      const trimmedBoundDomain = boundDomain.trim()
+      if (trimmedBoundDomain) {
+        payload.boundDomain = trimmedBoundDomain
+      }
 
       if (isLifetime) {
         payload.lifetime = true
@@ -133,7 +144,9 @@ export function AdminTokenManager() {
 
       setToken(result.token)
       setExpiresAt(result.apiToken?.expiresAt ?? null)
+      setCreatedTokenBoundDomain(result.apiToken?.boundDomain ?? null)
       setTokenName("")
+      setBoundDomain("")
       toast.success("API token generated")
       fetchTokens()
     } catch (err) {
@@ -157,6 +170,7 @@ export function AdminTokenManager() {
   const openEditDialog = (tokenItem: ApiTokenItem) => {
     setEditingToken(tokenItem)
     setEditName(tokenItem.name)
+    setEditBoundDomain(tokenItem.boundDomain ?? "")
     setEditExpiresInDays("")
     setEditIsLifetime(tokenItem.expiresAt === null)
     setEditError("")
@@ -166,6 +180,7 @@ export function AdminTokenManager() {
     if (savingEdit) return
     setEditingToken(null)
     setEditName("")
+    setEditBoundDomain("")
     setEditExpiresInDays("")
     setEditIsLifetime(false)
     setEditError("")
@@ -185,8 +200,13 @@ export function AdminTokenManager() {
         return
       }
 
-      const payload: { name: string; expiresInDays?: number; lifetime?: boolean } = { name: editName.trim() }
+      const payload: { name: string; expiresInDays?: number; lifetime?: boolean; boundDomain?: string | null } = {
+        name: editName.trim(),
+      }
       const trimmed = editExpiresInDays.trim()
+      const trimmedEditBoundDomain = editBoundDomain.trim()
+
+      payload.boundDomain = trimmedEditBoundDomain ? trimmedEditBoundDomain : null
 
       if (editIsLifetime) {
         payload.lifetime = true
@@ -252,6 +272,19 @@ export function AdminTokenManager() {
         </div>
 
         <div className="space-y-2">
+          <Label htmlFor="boundDomain">Bound domain (optional)</Label>
+          <Input
+            id="boundDomain"
+            placeholder="example.com"
+            value={boundDomain}
+            onChange={(event) => setBoundDomain(event.target.value)}
+          />
+          <p className="text-sm text-muted-foreground">
+            หากระบุไว้ token นี้จะใช้ได้เฉพาะโดเมนนี้เท่านั้น (ตรวจจาก Origin/Referer)
+          </p>
+        </div>
+
+        <div className="space-y-2">
           <Label htmlFor="expiresInDays">หมดอายุ</Label>
           <div className="flex flex-wrap gap-2">
             <Input
@@ -308,6 +341,9 @@ export function AdminTokenManager() {
                 <span className="text-sm text-muted-foreground">
                   Expires at: {expiresAt ? new Date(expiresAt).toLocaleString() : "Lifetime"}
                 </span>
+                <span className="text-sm text-muted-foreground">
+                  Bound domain: {createdTokenBoundDomain ?? "None"}
+                </span>
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
@@ -349,6 +385,8 @@ export function AdminTokenManager() {
                         <span>Created {formatDate(tokenItem.createdAt)}</span>
                         {" · "}
                         <span>Expires {formatExpiry(tokenItem.expiresAt)}</span>
+                        {" · "}
+                        <span>Domain {tokenItem.boundDomain ?? "None"}</span>
                         {tokenItem.lastUsedAt && (
                           <>
                             {" · "}
@@ -385,6 +423,18 @@ export function AdminTokenManager() {
                   value={editName}
                   onChange={(event) => setEditName(event.target.value)}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editBoundDomain">Bound domain (optional)</Label>
+                <Input
+                  id="editBoundDomain"
+                  placeholder="example.com"
+                  value={editBoundDomain}
+                  onChange={(event) => setEditBoundDomain(event.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Leave empty to unbind this token from any specific domain.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="editExpiresInDays">Extend by days (optional)</Label>

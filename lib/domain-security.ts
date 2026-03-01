@@ -10,6 +10,22 @@ export function normalizeDomain(domain: string): string {
   return domain.trim().toLowerCase().replace(/\.$/, "").replace(/^www\./, "")
 }
 
+export function normalizeDomainInput(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    throw new Error("Domain is required")
+  }
+
+  const normalizedUrl = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+  const extracted = extractDomain(normalizedUrl)
+
+  if (!extracted) {
+    throw new Error("Invalid domain URL")
+  }
+
+  return normalizeDomain(extracted)
+}
+
 export function domainsMatch(left: string, right: string): boolean {
   return normalizeDomain(left) === normalizeDomain(right)
 }

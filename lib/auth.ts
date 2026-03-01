@@ -3,7 +3,12 @@ import { createHash } from "crypto"
 import { jwtVerify, SignJWT } from "jose"
 import bcrypt from "bcryptjs"
 import { prisma } from "@/lib/prisma"
-import { getRequestingDomain, isDomainCheckRequired, isRequestDomainAllowed } from "@/lib/domain-security"
+import {
+  domainsMatch,
+  getRequestingDomain,
+  isDomainCheckRequired,
+  isDomainGloballyAllowed,
+} from "@/lib/domain-security"
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || "your-secret-key-change-in-production")
 
@@ -47,28 +52,40 @@ export async function getUserFromRequest(request: NextRequest): Promise<JWTPaylo
   const authHeader = request.headers.get("authorization")
   const headerToken = authHeader?.replace(/^Bearer\s+/i, "")
   const cookieToken = request.cookies.get("token")?.value
+  const requiresDomainCheck = isDomainCheckRequired(request.nextUrl.pathname)
+  const requestDomain = requiresDomainCheck ? getRequestingDomain(request) : null
 
   if (headerToken) {
-    if (isDomainCheckRequired(request.nextUrl.pathname)) {
-      const requestDomain = getRequestingDomain(request)
-      const isAllowedDomain = await isRequestDomainAllowed(request)
-      if (!isAllowedDomain) {
-        console.warn("Blocked token request from non-allowed domain", {
-          path: request.nextUrl.pathname,
-          domain: requestDomain,
-          origin: request.headers.get("origin"),
-          referer: request.headers.get("referer"),
-        })
-        return null
-      }
-      console.info("Accepted token request from allowed domain", {
-        path: request.nextUrl.pathname,
-        domain: requestDomain,
-      })
-    }
-
     const jwtPayload = await verifyToken(headerToken)
     if (jwtPayload) {
+      if (requiresDomainCheck) {
+        if (!requestDomain) {
+          console.warn("Blocked JWT request without origin/referer domain", {
+            path: request.nextUrl.pathname,
+            origin: request.headers.get("origin"),
+            referer: request.headers.get("referer"),
+          })
+          return null
+        }
+
+        const isAllowedDomain = await isDomainGloballyAllowed(requestDomain)
+        if (!isAllowedDomain) {
+          console.warn("Blocked JWT request from non-allowed domain", {
+            path: request.nextUrl.pathname,
+            domain: requestDomain,
+            origin: request.headers.get("origin"),
+            referer: request.headers.get("referer"),
+          })
+          return null
+        }
+
+        console.info("Accepted JWT request from allowed domain", {
+          path: request.nextUrl.pathname,
+          domain: requestDomain,
+          strategy: "global_domain_allowlist",
+        })
+      }
+
       return jwtPayload
     }
 
@@ -91,6 +108,43 @@ export async function getUserFromRequest(request: NextRequest): Promise<JWTPaylo
     })
 
     if (!apiToken) return null
+
+    if (requiresDomainCheck) {
+      if (!requestDomain) {
+        console.warn("Blocked API token request without origin/referer domain", {
+          path: request.nextUrl.pathname,
+          tokenId: apiToken.id,
+          origin: request.headers.get("origin"),
+          referer: request.headers.get("referer"),
+        })
+        return null
+      }
+
+      const isAllowedDomain = apiToken.boundDomain
+        ? domainsMatch(requestDomain, apiToken.boundDomain)
+        : await isDomainGloballyAllowed(requestDomain)
+
+      if (!isAllowedDomain) {
+        console.warn("Blocked API token request from non-allowed domain", {
+          path: request.nextUrl.pathname,
+          tokenId: apiToken.id,
+          domain: requestDomain,
+          boundDomain: apiToken.boundDomain,
+          strategy: apiToken.boundDomain ? "token_bound_domain" : "global_domain_allowlist",
+          origin: request.headers.get("origin"),
+          referer: request.headers.get("referer"),
+        })
+        return null
+      }
+
+      console.info("Accepted API token request from allowed domain", {
+        path: request.nextUrl.pathname,
+        tokenId: apiToken.id,
+        domain: requestDomain,
+        boundDomain: apiToken.boundDomain,
+        strategy: apiToken.boundDomain ? "token_bound_domain" : "global_domain_allowlist",
+      })
+    }
 
     await prisma.apiToken.update({
       where: { id: apiToken.id },
