@@ -9,9 +9,9 @@ export default function PluginPage() {
 
   const downloads = {
     plugin: {
-      version: "2.0.3",
-      href: "/downloads/7ls-video-publisher-2.0.3.zip",
-      filename: "7ls-video-publisher-2.0.3.zip",
+      version: "2.0.4",
+      href: "/downloads/7ls-video-publisher-2.0.4.zip",
+      filename: "7ls-video-publisher-2.0.4.zip",
     },
     clipTheme: {
       version: "1.2.8",
@@ -98,6 +98,11 @@ export default function PluginPage() {
                     <p className="text-xs text-slate-500">ไฟล์ปลั๊กอิน</p>
                     <p className="font-mono text-sm text-slate-700">{downloads.plugin.filename}</p>
                   </div>
+                </div>
+
+                <div className="mb-6 rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm">
+                  <p className="font-medium text-blue-800">มี RetroTube compatibility แบบ opt-in</p>
+                  <p className="mt-1 text-xs text-blue-700">ค่าเริ่มต้นยังใช้ flow เดิมของธีมหลัก และค่อยเปิดใช้จากหน้า Settings เมื่อไซต์นั้นใช้ RetroTube</p>
                 </div>
 
                 {/* API Info */}

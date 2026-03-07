@@ -1,0 +1,493 @@
+/* 7LS Video Publisher Admin Styles */
+
+.sevenls-vp-actions {
+    background: #f0f0f1;
+    padding: 20px;
+    border-radius: 4px;
+    margin: 20px 0;
+}
+
+.sevenls-vp-actions form {
+    display: inline-block;
+    margin-right: 10px;
+}
+
+.sevenls-vp-log-level {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.sevenls-vp-log-info {
+    background: #d7f0ff;
+    color: #016087;
+}
+
+.sevenls-vp-log-warning {
+    background: #fcf3cf;
+    color: #855c00;
+}
+
+.sevenls-vp-log-error {
+    background: #ffd7d7;
+    color: #cc0000;
+}
+
+/* Video list table enhancements */
+.column-external_id,
+.column-duration {
+    width: 120px;
+}
+
+.column-updated_at {
+    width: 150px;
+}
+
+/* Modern settings page */
+.sevenls-vp-wrapper {
+    --vp-primary: #6366f1;
+    --vp-primary-hover: #4f46e5;
+    --vp-success: #10b981;
+    --vp-warning: #f59e0b;
+    --vp-danger: #ef4444;
+    --vp-bg: #f8fafc;
+    --vp-card: #ffffff;
+    --vp-border: #e2e8f0;
+    --vp-text: #1e293b;
+    --vp-text-muted: #64748b;
+    --vp-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+    --vp-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+    background: var(--vp-bg);
+    margin: -10px -20px;
+    padding: 20px;
+    min-height: calc(100vh - 32px);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.sevenls-vp-header {
+    background: linear-gradient(135deg, var(--vp-primary) 0%, #8b5cf6 100%);
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 32px;
+    color: #ffffff;
+    box-shadow: var(--vp-shadow-lg);
+    position: relative;
+    overflow: hidden;
+}
+
+.sevenls-vp-header::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 300px;
+    height: 300px;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+    animation: sevenls-vp-pulse 3s ease-in-out infinite;
+}
+
+.sevenls-vp-header-title {
+    margin: 0;
+    font-size: 32px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: relative;
+    z-index: 1;
+}
+
+.sevenls-vp-header-subtitle {
+    margin: 8px 0 0;
+    opacity: 0.9;
+    font-size: 14px;
+    position: relative;
+    z-index: 1;
+}
+
+.sevenls-vp-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 32px;
+    background: var(--vp-card);
+    padding: 8px;
+    border-radius: 12px;
+    box-shadow: var(--vp-shadow);
+}
+
+.sevenls-vp-tab {
+    flex: 1;
+    padding: 14px 24px;
+    border: none;
+    background: transparent;
+    color: var(--vp-text-muted);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 500;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    text-decoration: none;
+    position: relative;
+}
+
+.sevenls-vp-tab:hover {
+    background: var(--vp-bg);
+    color: var(--vp-text);
+    transform: translateY(-2px);
+}
+
+.sevenls-vp-tab.is-active {
+    background: var(--vp-primary);
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+}
+
+.sevenls-vp-tab-icon {
+    font-size: 16px;
+}
+
+.sevenls-vp-card {
+    background: var(--vp-card);
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 24px;
+    box-shadow: var(--vp-shadow);
+    transition: all 0.3s ease;
+    border: 1px solid var(--vp-border);
+}
+
+.sevenls-vp-card:hover {
+    box-shadow: var(--vp-shadow-lg);
+    transform: translateY(-2px);
+}
+
+.sevenls-vp-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid var(--vp-bg);
+}
+
+.sevenls-vp-progress {
+    position: relative;
+    height: 6px;
+    margin: 0 0 24px;
+    background: #e5e7eb;
+    border-radius: 999px;
+    overflow: hidden;
+    opacity: 0;
+    transform: scaleY(0.6);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.sevenls-vp-progress-bar {
+    position: absolute;
+    inset: 0;
+    width: 35%;
+    background: linear-gradient(90deg, transparent 0%, rgba(99, 102, 241, 0.6) 40%, var(--vp-primary) 60%, transparent 100%);
+    animation: sevenls-vp-progress 1.2s ease-in-out infinite;
+}
+
+.sevenls-vp-card.is-loading .sevenls-vp-progress {
+    opacity: 1;
+    transform: scaleY(1);
+}
+
+.sevenls-vp-card.is-loading .sevenls-vp-btn {
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+.sevenls-vp-card-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--vp-text);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0;
+}
+
+.sevenls-vp-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.sevenls-vp-status-success {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.sevenls-vp-status-info {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.sevenls-vp-btn {
+    padding: 12px 24px;
+    border-radius: 10px;
+    border: none;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+    overflow: hidden;
+}
+
+.sevenls-vp-btn::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+}
+
+.sevenls-vp-btn:hover::before {
+    width: 300px;
+    height: 300px;
+}
+
+.sevenls-vp-btn-primary {
+    background: var(--vp-primary);
+    color: #ffffff;
+}
+
+.sevenls-vp-btn-primary:hover {
+    background: var(--vp-primary-hover);
+    box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4);
+    transform: translateY(-2px);
+}
+
+.sevenls-vp-btn-secondary {
+    background: #f1f5f9;
+    color: var(--vp-text);
+}
+
+.sevenls-vp-btn-secondary:hover {
+    background: #e2e8f0;
+    transform: translateY(-2px);
+}
+
+.sevenls-vp-info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 16px;
+    margin: 24px 0;
+}
+
+.sevenls-vp-info-item {
+    background: var(--vp-bg);
+    padding: 20px;
+    border-radius: 12px;
+    border-left: 4px solid var(--vp-primary);
+}
+
+.sevenls-vp-info-label {
+    font-size: 13px;
+    color: var(--vp-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.sevenls-vp-info-value {
+    font-size: 16px;
+    color: var(--vp-text);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sevenls-vp-code-block {
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 20px;
+    border-radius: 12px;
+    margin: 12px 0;
+    font-family: "Monaco", "Courier New", monospace;
+    font-size: 14px;
+    position: relative;
+    overflow-x: auto;
+}
+
+.sevenls-vp-code-block code {
+    display: block;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.sevenls-vp-copy-btn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    padding: 6px 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.3s ease;
+}
+
+.sevenls-vp-copy-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.sevenls-vp-copy-btn.is-copied {
+    background: rgba(16, 185, 129, 0.35);
+    border-color: rgba(16, 185, 129, 0.5);
+}
+
+.sevenls-vp-tooltip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    background: var(--vp-primary);
+    color: #ffffff;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: help;
+    margin-left: 6px;
+}
+
+.sevenls-vp-tooltip::before {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 130%;
+    left: 50%;
+    transform: translateX(-50%) scale(0);
+    background: var(--vp-text);
+    color: #ffffff;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 400;
+    white-space: nowrap;
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+    z-index: 1000;
+    box-shadow: var(--vp-shadow-lg);
+}
+
+.sevenls-vp-tooltip::after {
+    content: "";
+    position: absolute;
+    bottom: 120%;
+    left: 50%;
+    transform: translateX(-50%) scale(0);
+    border: 6px solid transparent;
+    border-top-color: var(--vp-text);
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sevenls-vp-tooltip:hover::before,
+.sevenls-vp-tooltip:hover::after {
+    transform: translateX(-50%) scale(1);
+    opacity: 1;
+}
+
+.sevenls-vp-wrapper .sevenls-vp-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+}
+
+.sevenls-vp-wrapper .sevenls-vp-actions form {
+    margin: 0;
+}
+
+.sevenls-vp-inline-form {
+    margin: 0;
+}
+
+.sevenls-vp-section-title {
+    margin: 0 0 16px;
+    color: var(--vp-text);
+}
+
+.sevenls-vp-section-title-spaced {
+    margin-top: 32px;
+}
+
+.sevenls-vp-wrapper .form-table th {
+    color: var(--vp-text);
+    width: 220px;
+}
+
+.sevenls-vp-wrapper .form-table td {
+    color: var(--vp-text);
+}
+
+@keyframes sevenls-vp-pulse {
+    0%,
+    100% {
+        transform: scale(1);
+        opacity: 0.5;
+    }
+    50% {
+        transform: scale(1.1);
+        opacity: 0.8;
+    }
+}
+
+@keyframes sevenls-vp-progress {
+    0% {
+        transform: translateX(-60%);
+    }
+    100% {
+        transform: translateX(240%);
+    }
+}
+
+@media (max-width: 768px) {
+    .sevenls-vp-wrapper {
+        padding: 12px;
+    }
+
+    .sevenls-vp-header {
+        padding: 24px;
+    }
+
+    .sevenls-vp-tabs {
+        flex-direction: column;
+    }
+
+    .sevenls-vp-info-grid {
+        grid-template-columns: 1fr;
+    }
+}

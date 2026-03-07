@@ -1,0 +1,375 @@
+/* ─── Base Container ─────────────────────────────────────── */
+
+.sevenls-video-player {
+    position: relative;
+    background: var(--sevenls-vp-bg, #000000);
+    border-radius: var(--sevenls-vp-radius, 0);
+    box-shadow: var(--sevenls-vp-shadow, none);
+    overflow: hidden;
+    cursor: pointer;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    user-select: none;
+}
+
+.sevenls-video-player video,
+.sevenls-video-player iframe {
+    width: 100%;
+    height: 560px;
+    min-height: var(--sevenls-vp-min-height, 0);
+    max-height: var(--sevenls-vp-max-height, none);
+    aspect-ratio: var(--sevenls-vp-aspect, auto);
+    object-fit: var(--sevenls-vp-fit, contain);
+    display: block;
+    pointer-events: auto;
+}
+
+/* Hide native controls when custom controls are active */
+.sevenls-vp-initialized video::-webkit-media-controls,
+.sevenls-vp-initialized video::-webkit-media-controls-panel,
+.sevenls-vp-initialized video::-webkit-media-controls-enclosure {
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+}
+
+/* Show native controls as fallback when JS not loaded */
+.sevenls-video-player:not(.sevenls-vp-initialized) video::-webkit-media-controls,
+.sevenls-video-player:not(.sevenls-vp-initialized) video::-webkit-media-controls-panel,
+.sevenls-video-player:not(.sevenls-vp-initialized) video::-webkit-media-controls-enclosure {
+    display: flex !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+.sevenls-video-player.is-fullscreen {
+    border-radius: 0;
+}
+
+.sevenls-video-player.is-fullscreen video {
+    height: 100vh;
+    max-height: none;
+}
+
+/* ─── Error Display ──────────────────────────────────────── */
+
+.sevenls-video-error {
+    display: none;
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 14px 16px;
+    background: rgba(220, 38, 38, 0.9);
+    color: #ffffff;
+    font-size: 13px;
+    line-height: 1.5;
+    z-index: 20;
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+}
+
+.sevenls-video-error.is-visible {
+    display: block;
+}
+
+/* ─── Center Play Overlay ────────────────────────────────── */
+
+.sevenls-vp-play-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(1);
+    width: 68px;
+    height: 68px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: 50%;
+    color: #ffffff;
+    cursor: pointer;
+    z-index: 10;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+}
+
+.sevenls-vp-play-overlay.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.sevenls-vp-play-overlay:hover {
+    transform: translate(-50%, -50%) scale(1.1);
+    background: rgba(0, 0, 0, 0.7);
+}
+
+.sevenls-vp-play-overlay svg {
+    width: 32px;
+    height: 32px;
+}
+
+/* ─── Loading Spinner ────────────────────────────────────── */
+
+.sevenls-vp-loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 9;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+.sevenls-vp-loading.is-visible {
+    opacity: 1;
+}
+
+.sevenls-vp-spinner {
+    width: 44px;
+    height: 44px;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #ffffff;
+    border-radius: 50%;
+    animation: sevenls-spin 0.8s linear infinite;
+}
+
+@keyframes sevenls-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ─── Bottom Controls Bar ────────────────────────────────── */
+
+.sevenls-vp-controls {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 0 12px 10px;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.75));
+    z-index: 15;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+
+.sevenls-vp-controls-visible .sevenls-vp-controls {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* ─── Progress Bar ───────────────────────────────────────── */
+
+.sevenls-vp-progress {
+    position: relative;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+    cursor: pointer;
+    margin-bottom: 8px;
+    transition: height 0.15s ease;
+}
+
+.sevenls-vp-progress:hover,
+.sevenls-vp-progress:active {
+    height: 6px;
+}
+
+.sevenls-vp-progress-buffer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 0;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+    pointer-events: none;
+}
+
+.sevenls-vp-progress-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 0;
+    background: #ff4444;
+    border-radius: 2px;
+    pointer-events: none;
+}
+
+.sevenls-vp-progress-handle {
+    position: absolute;
+    right: -6px;
+    top: 50%;
+    transform: translateY(-50%) scale(0);
+    width: 12px;
+    height: 12px;
+    background: #ff4444;
+    border-radius: 50%;
+    pointer-events: none;
+    transition: transform 0.15s ease;
+}
+
+.sevenls-vp-progress:hover .sevenls-vp-progress-handle,
+.sevenls-vp-progress:active .sevenls-vp-progress-handle {
+    transform: translateY(-50%) scale(1);
+}
+
+/* ─── Controls Row ───────────────────────────────────────── */
+
+.sevenls-vp-controls-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.sevenls-vp-controls-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sevenls-vp-controls-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* ─── Control Buttons ────────────────────────────────────── */
+
+.sevenls-vp-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #ffffff;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.15s ease;
+    flex-shrink: 0;
+}
+
+.sevenls-vp-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.sevenls-vp-btn svg {
+    width: 22px;
+    height: 22px;
+}
+
+/* ─── Volume ─────────────────────────────────────────────── */
+
+.sevenls-vp-volume {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.sevenls-vp-volume-slider {
+    width: 70px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    padding: 0 2px;
+}
+
+.sevenls-vp-volume-track {
+    position: relative;
+    width: 100%;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+}
+
+.sevenls-vp-volume-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 100%;
+    background: #ffffff;
+    border-radius: 2px;
+    pointer-events: none;
+}
+
+/* ─── Time Display ───────────────────────────────────────── */
+
+.sevenls-vp-time {
+    font-size: 12px;
+    color: #ffffff;
+    font-family: monospace, sans-serif;
+    white-space: nowrap;
+    line-height: 1;
+    padding: 0 4px;
+    flex-shrink: 0;
+}
+
+/* ─── Hide cursor when controls hidden ───────────────────── */
+
+.sevenls-video-player.is-playing:not(.sevenls-vp-controls-visible) {
+    cursor: none;
+}
+
+/* ─── Mobile Responsive ──────────────────────────────────── */
+
+@media (max-width: 640px) {
+    .sevenls-vp-play-overlay {
+        width: 56px;
+        height: 56px;
+    }
+
+    .sevenls-vp-play-overlay svg {
+        width: 26px;
+        height: 26px;
+    }
+
+    .sevenls-vp-btn {
+        width: 44px;
+        height: 44px;
+    }
+
+    .sevenls-vp-btn svg {
+        width: 24px;
+        height: 24px;
+    }
+
+    .sevenls-vp-volume-slider {
+        display: none;
+    }
+
+    .sevenls-vp-time {
+        font-size: 11px;
+    }
+
+    .sevenls-vp-progress {
+        height: 5px;
+    }
+
+    .sevenls-vp-progress-handle {
+        width: 16px;
+        height: 16px;
+        right: -8px;
+        transform: translateY(-50%) scale(1);
+    }
+}
+
+@media (hover: none) and (pointer: coarse) {
+    .sevenls-vp-progress {
+        height: 5px;
+    }
+
+    .sevenls-vp-progress-handle {
+        transform: translateY(-50%) scale(1);
+    }
+}

@@ -1,0 +1,251 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&family=Oswald:wght@400;600&display=swap");
+
+.sevenls-vp-page {
+    --vp-accent: #ff8a00;
+    --vp-accent-strong: #ffb347;
+    --vp-bg: #0b0b0d;
+    --vp-panel: #151517;
+    --vp-panel-soft: #1c1c20;
+    --vp-border: #2b2b2f;
+    --vp-text: #f5f5f5;
+    --vp-muted: #b5b7c4;
+    --vp-glow: rgba(255, 138, 0, 0.25);
+    background: radial-gradient(circle at top, rgba(255, 138, 0, 0.15), transparent 45%), var(--vp-bg);
+    color: var(--vp-text);
+    padding: 32px 28px 64px;
+    font-family: "Manrope", "Segoe UI", sans-serif;
+}
+
+.sevenls-vp-hero {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+}
+
+.sevenls-vp-title {
+    font-family: "Oswald", "Impact", sans-serif;
+    font-size: 34px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin: 0 0 8px;
+}
+
+.sevenls-vp-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    color: var(--vp-muted);
+    font-size: 13px;
+}
+
+.sevenls-vp-meta-item {
+    padding: 6px 12px;
+    background: var(--vp-panel);
+    border: 1px solid var(--vp-border);
+    border-radius: 999px;
+}
+
+.sevenls-vp-hero-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.sevenls-vp-action-btn {
+    border: 1px solid var(--vp-border);
+    background: transparent;
+    color: var(--vp-text);
+    padding: 10px 18px;
+    border-radius: 999px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.sevenls-vp-action-btn.is-primary {
+    background: var(--vp-accent);
+    border-color: transparent;
+    color: #101010;
+    box-shadow: 0 10px 25px var(--vp-glow);
+}
+
+.sevenls-vp-action-btn:hover {
+    transform: translateY(-1px);
+    border-color: var(--vp-accent);
+}
+
+.sevenls-vp-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.sevenls-vp-main {
+    min-width: 0;
+}
+
+.sevenls-vp-sidebar {
+    width: 100%;
+}
+
+.sevenls-vp-player-card {
+    background: var(--vp-panel);
+    border: 1px solid var(--vp-border);
+    border-radius: 18px;
+    padding: 18px;
+    box-shadow: 0 24px 40px rgba(0, 0, 0, 0.35);
+}
+
+.sevenls-vp-player-embed .sevenls-video-container {
+    margin: 0;
+}
+
+.sevenls-vp-player-embed .sevenls-video-title,
+.sevenls-vp-player-embed .sevenls-video-description,
+.sevenls-vp-player-embed .sevenls-video-tags,
+.sevenls-vp-player-embed .sevenls-video-duration {
+    display: none;
+}
+
+.sevenls-vp-panel {
+    margin-top: 24px;
+    background: var(--vp-panel-soft);
+    border: 1px solid var(--vp-border);
+    border-radius: 16px;
+    padding: 20px;
+}
+
+.sevenls-vp-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.sevenls-vp-section-title {
+    margin: 0 0 12px;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.sevenls-vp-description {
+    color: var(--vp-muted);
+    line-height: 1.7;
+}
+
+.sevenls-vp-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 18px;
+}
+
+.sevenls-vp-tag {
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--vp-border);
+    color: var(--vp-text);
+    text-decoration: none;
+    font-size: 12px;
+    background: #111115;
+}
+
+.sevenls-vp-tag:hover {
+    border-color: var(--vp-accent);
+    color: var(--vp-accent);
+}
+
+.sevenls-vp-sidebar .sevenls-vp-panel {
+    margin-top: 0;
+}
+
+.sevenls-vp-related-list {
+    display: grid;
+    gap: 12px;
+}
+
+.sevenls-vp-related-card {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 12px;
+    text-decoration: none;
+    color: var(--vp-text);
+    border-radius: 12px;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.sevenls-vp-related-card:hover {
+    border-color: var(--vp-accent);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.sevenls-vp-related-thumb {
+    border-radius: 10px;
+    background-color: #0f0f12;
+    background-size: cover;
+    background-position: center;
+    min-height: 80px;
+}
+
+.sevenls-vp-related-title {
+    font-weight: 600;
+    margin-bottom: 6px;
+    font-size: 14px;
+}
+
+.sevenls-vp-related-meta {
+    font-size: 12px;
+    color: var(--vp-muted);
+}
+
+.sevenls-vp-muted {
+    color: var(--vp-muted);
+    margin: 0;
+}
+
+@media (min-width: 1180px) {
+    .sevenls-vp-layout {
+        display: flex;
+        flex-direction: row;
+        align-items: flex-start;
+        justify-content: center;
+        gap: 24px;
+    }
+
+    .sevenls-vp-main {
+        flex: 1 1 auto;
+    }
+
+    .sevenls-vp-sidebar {
+        flex: 0 0 340px;
+        width: 340px;
+        max-width: 100%;
+    }
+}
+
+@media (max-width: 1179px) {
+    .sevenls-vp-sidebar {
+        width: 100%;
+        flex: 1 1 auto;
+        order: 2;
+    }
+}
+
+@media (max-width: 640px) {
+    .sevenls-vp-page {
+        padding: 20px 16px 40px;
+    }
+
+    .sevenls-vp-title {
+        font-size: 26px;
+    }
+
+    .sevenls-vp-player-card {
+        padding: 12px;
+    }
+}
