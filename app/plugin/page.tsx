@@ -7,6 +7,26 @@ import { Download, Package, Palette, ExternalLink, Key, ChevronRight, Check, Cop
 export default function PluginPage() {
   const [copiedEndpoint, setCopiedEndpoint] = useState<number | null>(null)
 
+  const downloads = {
+    plugin: {
+      version: "2.0.2",
+      href: "/downloads/7ls-video-publisher-2.0.2.zip",
+      filename: "7ls-video-publisher-2.0.2.zip",
+    },
+    clipTheme: {
+      version: "1.2.8",
+      href: "/downloads/theme-clip-thai-1.2.8.zip",
+      filename: "theme-clip-thai-1.2.8.zip",
+      title: "Theme-Clip-Thai",
+    },
+    avTheme: {
+      version: "1.3.1",
+      href: "/downloads/theme-av-api-1.3.1.zip",
+      filename: "theme-av-api-1.3.1.zip",
+      title: "Theme AV API",
+    },
+  } as const
+
   const copyToClipboard = (text: string, id: number) => {
     navigator.clipboard.writeText(text)
     setCopiedEndpoint(id)
@@ -49,7 +69,7 @@ export default function PluginPage() {
                     <Package className="h-7 w-7" />
                   </div>
                   <span className="px-3 py-1 bg-white/20 rounded-full text-sm font-medium backdrop-blur-sm">
-                    v2.0.1
+                    v{downloads.plugin.version}
                   </span>
                 </div>
                 <h2 className="text-2xl font-bold mb-1">Plugin WP</h2>
@@ -60,7 +80,7 @@ export default function PluginPage() {
               <div className="p-6">
                 {/* Download Button */}
                 <a
-                  href="/downloads/7ls-video-publisher-2.0.1.zip"
+                  href={downloads.plugin.href}
                   download
                   className="flex items-center justify-center gap-3 w-full py-4 px-6 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all duration-300 transform hover:-translate-y-0.5 mb-6"
                 >
@@ -76,7 +96,7 @@ export default function PluginPage() {
                   </div>
                   <div>
                     <p className="text-xs text-slate-500">ไฟล์ปลั๊กอิน</p>
-                    <p className="font-mono text-sm text-slate-700">7ls-video-publisher-2.0.1.zip</p>
+                    <p className="font-mono text-sm text-slate-700">{downloads.plugin.filename}</p>
                   </div>
                 </div>
 
@@ -145,23 +165,23 @@ export default function PluginPage() {
                     <Palette className="h-7 w-7" />
                   </div>
                   <span className="px-3 py-1 bg-white/20 rounded-full text-sm font-medium backdrop-blur-sm">
-                    v1.2.7
+                    v{downloads.clipTheme.version}
                   </span>
                 </div>
-                <h2 className="text-2xl font-bold mb-1">Theme WP</h2>
-                <p className="text-violet-100 text-sm">ธีม WordPress สำหรับแสดงผลวิดีโอ</p>
+                <h2 className="text-2xl font-bold mb-1">{downloads.clipTheme.title}</h2>
+                <p className="text-violet-100 text-sm">ธีม WordPress สำหรับเว็บคลิปไทย</p>
               </div>
 
               {/* Card Body */}
               <div className="p-6">
                 {/* Download Button */}
                 <a
-                  href="/downloads/publish-videos-api-1.2.7.zip"
+                  href={downloads.clipTheme.href}
                   download
                   className="flex items-center justify-center gap-3 w-full py-4 px-6 bg-gradient-to-r from-violet-600 to-purple-700 hover:from-violet-700 hover:to-purple-800 text-white font-semibold rounded-xl shadow-lg shadow-violet-500/25 hover:shadow-violet-500/40 transition-all duration-300 transform hover:-translate-y-0.5 mb-6"
                 >
                   <Download className="h-5 w-5" />
-                  ดาวน์โหลด Theme
+                  ดาวน์โหลด {downloads.clipTheme.title}
                   <span className="text-violet-200 text-sm font-normal">(.zip)</span>
                 </a>
 
@@ -172,7 +192,7 @@ export default function PluginPage() {
                   </div>
                   <div>
                     <p className="text-xs text-slate-500">ไฟล์ธีม</p>
-                    <p className="font-mono text-sm text-slate-700">publish-videos-api-1.2.7.zip</p>
+                    <p className="font-mono text-sm text-slate-700">{downloads.clipTheme.filename}</p>
                   </div>
                 </div>
 
@@ -185,7 +205,7 @@ export default function PluginPage() {
 
                   <div className="space-y-3">
                     {[
-                      { step: 1, text: "ดาวน์โหลดไฟล์ .zip ของธีม" },
+                      { step: 1, text: `ดาวน์โหลดไฟล์ ${downloads.clipTheme.title} (.zip)` },
                       { step: 2, text: "ไปที่ Appearance > Themes > Add New" },
                       { step: 3, text: "คลิก Upload Theme และเลือกไฟล์" },
                       { step: 4, text: "Activate ธีมและตั้งค่าเชื่อมต่อ Plugin" },
@@ -231,21 +251,21 @@ export default function PluginPage() {
                     <Palette className="h-7 w-7" />
                   </div>
                   <span className="px-3 py-1 bg-white/20 rounded-full text-sm font-medium backdrop-blur-sm">
-                    AV Theme
+                    v{downloads.avTheme.version}
                   </span>
                 </div>
-                <h2 className="text-2xl font-bold mb-1">Theme AV</h2>
+                <h2 className="text-2xl font-bold mb-1">{downloads.avTheme.title}</h2>
                 <p className="text-rose-100 text-sm">ธีม WordPress สำหรับเว็บไซต์สาย AV</p>
               </div>
 
               <div className="p-6">
                 <a
-                  href="/downloads/Theme-AV-api-20260217-173212.zip"
+                  href={downloads.avTheme.href}
                   download
                   className="flex items-center justify-center gap-3 w-full py-4 px-6 bg-gradient-to-r from-rose-600 to-orange-600 hover:from-rose-700 hover:to-orange-700 text-white font-semibold rounded-xl shadow-lg shadow-rose-500/25 hover:shadow-rose-500/40 transition-all duration-300 transform hover:-translate-y-0.5 mb-6"
                 >
                   <Download className="h-5 w-5" />
-                  ดาวน์โหลด Theme AV
+                  ดาวน์โหลด {downloads.avTheme.title}
                   <span className="text-rose-200 text-sm font-normal">(.zip)</span>
                 </a>
 
@@ -255,7 +275,7 @@ export default function PluginPage() {
                   </div>
                   <div>
                     <p className="text-xs text-slate-500">ไฟล์ธีม AV</p>
-                    <p className="font-mono text-sm text-slate-700">Theme-AV-api-20260217-173212.zip</p>
+                    <p className="font-mono text-sm text-slate-700">{downloads.avTheme.filename}</p>
                   </div>
                 </div>
 
@@ -267,9 +287,9 @@ export default function PluginPage() {
 
                   <div className="space-y-3">
                     {[
-                      { step: 1, text: "ดาวน์โหลดไฟล์ Theme AV (.zip)" },
+                      { step: 1, text: `ดาวน์โหลดไฟล์ ${downloads.avTheme.title} (.zip)` },
                       { step: 2, text: "ไปที่ Appearance > Themes > Add New" },
-                      { step: 3, text: "คลิก Upload Theme และเลือกไฟล์ Theme AV" },
+                      { step: 3, text: `คลิก Upload Theme และเลือกไฟล์ ${downloads.avTheme.title}` },
                       { step: 4, text: "Activate ธีมและเชื่อมต่อ Plugin เวอร์ชันใหม่" },
                     ].map((item) => (
                       <div key={item.step} className="flex items-center gap-3">
@@ -284,7 +304,7 @@ export default function PluginPage() {
                   <div className="flex items-start gap-3 p-3 bg-rose-50 border border-rose-200 rounded-lg text-sm">
                     <Package className="h-4 w-4 text-rose-600 mt-0.5 flex-shrink-0" />
                     <div>
-                      <p className="text-rose-800 font-medium">แนะนำใช้ Plugin v2.0.1</p>
+                      <p className="text-rose-800 font-medium">แนะนำใช้ Plugin v{downloads.plugin.version}</p>
                       <p className="text-rose-600 text-xs mt-0.5">เพื่อรองรับการทำงานล่าสุดของระบบ Media Storage</p>
                     </div>
                   </div>
