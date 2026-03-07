@@ -145,5 +145,18 @@ export function getRequestingDomain(request: NextRequest): string | null {
     if (domain) return domain
   }
 
+  // Fallback for server-to-server WordPress plugin requests.
+  const sevenLsOrigin = request.headers.get("x-sevenls-origin")
+  if (sevenLsOrigin) {
+    const domain = extractDomain(sevenLsOrigin)
+    if (domain) return domain
+  }
+
+  const sevenLsReferer = request.headers.get("x-sevenls-referer")
+  if (sevenLsReferer) {
+    const domain = extractDomain(sevenLsReferer)
+    if (domain) return domain
+  }
+
   return null
 }
