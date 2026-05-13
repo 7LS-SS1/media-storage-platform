@@ -123,10 +123,11 @@ Embed videos using iframe:
 
 ```html
 <iframe 
-  src="https://your-domain.com/embed/video/VIDEO_ID" 
+  src="https://your-domain.com/embed/VIDEO_ID" 
   width="640" 
   height="360" 
   frameborder="0" 
+  referrerpolicy="origin"
   allowfullscreen>
 </iframe>
 ```

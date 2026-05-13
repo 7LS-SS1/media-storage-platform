@@ -4,8 +4,8 @@ import type { RefObject } from "react"
 import { useCallback, useEffect, useRef, useState } from "react"
 
 type UseVideoControlsOptions = {
-  videoRef: RefObject<HTMLVideoElement>
-  containerRef?: RefObject<HTMLElement>
+  videoRef: RefObject<HTMLVideoElement | null>
+  containerRef?: RefObject<HTMLElement | null>
   sourceUrl?: string | null
 }
 

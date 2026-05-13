@@ -7,6 +7,8 @@ import { useVideoControls } from "@/hooks/use-video-controls"
 
 interface VideoEmbedProps {
   videoId: string
+  initialVideo: VideoData | null
+  initialError: string | null
 }
 
 interface VideoData {
@@ -17,14 +19,14 @@ interface VideoData {
   status: string
 }
 
-export function VideoEmbed({ videoId }: VideoEmbedProps) {
-  const [video, setVideo] = useState<VideoData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+export function VideoEmbed({ videoId, initialVideo, initialError }: VideoEmbedProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const playerRef = useRef<any | null>(null)
   const hasTrackedRef = useRef(false)
+  const [runtimeError, setRuntimeError] = useState<string | null>(null)
+  const video = initialVideo
+  const error = initialError ?? runtimeError
   const videoUrl = video?.videoUrl ?? null
   const videoType = useMemo(() => {
     if (!videoUrl) return "video/mp4"
@@ -44,28 +46,6 @@ export function VideoEmbed({ videoId }: VideoEmbedProps) {
 
   useEffect(() => {
     hasTrackedRef.current = false
-  }, [videoId])
-
-  useEffect(() => {
-    async function fetchVideo() {
-      try {
-        const response = await fetch(`/api/embed/${videoId}`)
-
-        if (!response.ok) {
-          const data = await response.json()
-          setError(data.error || "Failed to load video")
-          return
-        }
-
-        const data = await response.json()
-        setVideo(data.video)
-      } catch (err) {
-        setError("Failed to load video")
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchVideo()
   }, [videoId])
 
   const trackView = useCallback(async () => {
@@ -100,7 +80,7 @@ export function VideoEmbed({ videoId }: VideoEmbedProps) {
         const mpegts = module.default ?? module
         if (!mpegts?.isSupported?.()) {
           if (!cancelled) {
-            setError("TS playback is not supported in this browser")
+            setRuntimeError("TS playback is not supported in this browser")
           }
           return
         }
@@ -118,7 +98,7 @@ export function VideoEmbed({ videoId }: VideoEmbedProps) {
         }
       } catch (err) {
         if (!cancelled) {
-          setError("Failed to load TS player")
+          setRuntimeError("Failed to load TS player")
         }
       }
     }
@@ -133,17 +113,6 @@ export function VideoEmbed({ videoId }: VideoEmbedProps) {
       }
     }
   }, [isTsVideo, videoUrl])
-
-  if (loading) {
-    return (
-      <div className="w-full h-screen flex items-center justify-center bg-black">
-        <div className="text-white text-center">
-          <div className="animate-spin h-8 w-8 border-4 border-white border-t-transparent rounded-full mx-auto mb-4" />
-          <p>Loading video...</p>
-        </div>
-      </div>
-    )
-  }
 
   if (error) {
     return (

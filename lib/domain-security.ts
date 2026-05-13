@@ -127,36 +127,42 @@ export async function isRequestDomainAllowed(request: NextRequest): Promise<bool
   return isDomainGloballyAllowed(domain)
 }
 
-/**
- * Get requesting domain from request headers
- */
-export function getRequestingDomain(request: NextRequest): string | null {
+type HeaderSource = Pick<Headers, "get">
+
+export function getRequestingDomainFromHeaders(headers: HeaderSource): string | null {
   // Check Origin header first (more reliable for cross-origin API requests)
-  const origin = request.headers.get("origin")
+  const origin = headers.get("origin")
   if (origin) {
     const domain = extractDomain(origin)
     if (domain) return domain
   }
 
   // Fallback to Referer header
-  const referer = request.headers.get("referer")
+  const referer = headers.get("referer")
   if (referer) {
     const domain = extractDomain(referer)
     if (domain) return domain
   }
 
   // Fallback for server-to-server WordPress plugin requests.
-  const sevenLsOrigin = request.headers.get("x-sevenls-origin")
+  const sevenLsOrigin = headers.get("x-sevenls-origin")
   if (sevenLsOrigin) {
     const domain = extractDomain(sevenLsOrigin)
     if (domain) return domain
   }
 
-  const sevenLsReferer = request.headers.get("x-sevenls-referer")
+  const sevenLsReferer = headers.get("x-sevenls-referer")
   if (sevenLsReferer) {
     const domain = extractDomain(sevenLsReferer)
     if (domain) return domain
   }
 
   return null
+}
+
+/**
+ * Get requesting domain from request headers
+ */
+export function getRequestingDomain(request: NextRequest): string | null {
+  return getRequestingDomainFromHeaders(request.headers)
 }

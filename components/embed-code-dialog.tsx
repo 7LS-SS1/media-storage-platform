@@ -13,20 +13,31 @@ interface EmbedCodeDialogProps {
   videoTitle: string
 }
 
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+}
+
 export function EmbedCodeDialog({ videoId, videoTitle }: EmbedCodeDialogProps) {
   const [copied, setCopied] = useState(false)
   const [width, setWidth] = useState("640")
   const [height, setHeight] = useState("360")
 
   const embedUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/embed/${videoId}`
+  const safeVideoTitle = escapeHtmlAttribute(videoTitle)
 
   const embedCode = `<iframe
   src="${embedUrl}"
   width="${width}"
   height="${height}"
   frameborder="0"
+  referrerpolicy="origin"
   allowfullscreen
-  title="${videoTitle}">
+  title="${safeVideoTitle}">
 </iframe>`
 
   const handleCopy = async () => {
@@ -80,7 +91,15 @@ export function EmbedCodeDialog({ videoId, videoTitle }: EmbedCodeDialogProps) {
           <div className="space-y-2">
             <Label>Preview</Label>
             <div className="aspect-video bg-muted rounded-lg overflow-hidden">
-              <iframe src={embedUrl} width="100%" height="100%" frameBorder="0" allowFullScreen title={videoTitle} />
+              <iframe
+                src={embedUrl}
+                width="100%"
+                height="100%"
+                frameBorder="0"
+                referrerPolicy="origin"
+                allowFullScreen
+                title={videoTitle}
+              />
             </div>
           </div>
         </div>
