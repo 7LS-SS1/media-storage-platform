@@ -134,7 +134,18 @@ export default function UploadVideoPage() {
   // Track form data fingerprint used for last SEO run so we can show "stale" warning
   const lastSeoFingerprint = useRef<string | null>(null)
 
-  const currentFingerprint = `${title}||${targetKeyword}||${description}||${tags.join(",")}||${!!thumbnailFile}`
+  const currentFingerprint = [
+    title,
+    targetKeyword,
+    description,
+    tags.join(","),
+    movieCode,
+    studio,
+    storageBucket,
+    actors.join(","),
+    categoryIds.join(","),
+    String(!!thumbnailFile),
+  ].join("||")
   const seoIsStale =
     seoStatus === "done" &&
     lastSeoFingerprint.current !== null &&
@@ -147,6 +158,10 @@ export default function UploadVideoPage() {
   const tagLabel = isAv ? "ประเภทหนัง" : "แท็ก"
   const tagPlaceholder = isAv ? "พิมพ์ประเภทหนังแล้วกด Enter" : "พิมพ์แท็กแล้วกด Enter"
   const tagLimitMessage = `เพิ่มแท็กได้สูงสุด ${TAG_LIMIT} รายการ`
+  const selectedCategoryNames = useMemo(
+    () => categories.filter((category) => categoryIds.includes(category.id)).map((category) => category.name),
+    [categories, categoryIds],
+  )
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
   const slugify = (value: string) =>
@@ -415,6 +430,7 @@ export default function UploadVideoPage() {
             studio: studio || undefined,
             storageBucket,
             actors,
+            categoryNames: selectedCategoryNames,
           }),
         })
 
@@ -444,7 +460,18 @@ export default function UploadVideoPage() {
                 setSeoRecommendations(event.recommendations as string[])
                 setSeoProgress(100)
                 setSeoStatus("done")
-                lastSeoFingerprint.current = `${seoTitle}||${seoTargetKeyword}||${seoDesc}||${seoTags.join(",")}||${!!thumbnailFile}`
+                lastSeoFingerprint.current = [
+                  seoTitle,
+                  seoTargetKeyword,
+                  seoDesc,
+                  seoTags.join(","),
+                  movieCode,
+                  studio,
+                  storageBucket,
+                  actors.join(","),
+                  categoryIds.join(","),
+                  String(!!thumbnailFile),
+                ].join("||")
               }
             } catch {
               // malformed line — skip
@@ -457,7 +484,7 @@ export default function UploadVideoPage() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [title, targetKeyword, description, tags, thumbnailFile, movieCode, studio, storageBucket, actors],
+    [title, targetKeyword, description, tags, thumbnailFile, movieCode, studio, storageBucket, actors, categoryIds, selectedCategoryNames],
   )
 
   // ── SEO: Generate Improvements ────────────────────────────────────────────────
@@ -478,6 +505,7 @@ export default function UploadVideoPage() {
           studio: studio || undefined,
           storageBucket,
           actors,
+          categoryNames: selectedCategoryNames,
         }),
       })
 
@@ -487,7 +515,9 @@ export default function UploadVideoPage() {
       setTitle(result.title as string)
       setDescription(result.description as string)
       setTags(result.tags as string[])
-      toast.success(`สร้างข้อมูล SEO ใหม่แล้ว (คาดคะแนน ${result.expectedScore}/100) — กำลังตรวจซ้ำ…`)
+      const generatorLabel =
+        result.source === "openai" ? `AI SEO (${String(result.model || "OpenAI")})` : "SEO generator"
+      toast.success(`สร้างข้อมูลจาก ${generatorLabel} แล้ว (คาดคะแนน ${result.expectedScore}/100) — กำลังตรวจซ้ำ…`)
 
       // Auto-rerun SEO with new values (pass directly to avoid stale closure)
       await handleRunSeo({
