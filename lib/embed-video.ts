@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { getSignedPlaybackUrl, normalizeR2Url } from "@/lib/r2"
-import { isDomainAllowedForVideo } from "@/lib/domain-security"
+import { isDomainAllowedForVideo, isDomainGloballyAllowed } from "@/lib/domain-security"
 import { parseStorageBucket } from "@/lib/storage-bucket"
 import { VIDEO_ACCESS_BLOCK_MESSAGE } from "@/lib/video-access-block"
 
@@ -19,6 +19,21 @@ export interface EmbedVideoResult {
 }
 
 export async function resolveEmbedVideo(videoId: string, requestingDomain: string | null): Promise<EmbedVideoResult> {
+  if (!requestingDomain) {
+    return {
+      status: 403,
+      error: VIDEO_ACCESS_BLOCK_MESSAGE,
+    }
+  }
+
+  const isRegisteredDomain = await isDomainGloballyAllowed(requestingDomain)
+  if (!isRegisteredDomain) {
+    return {
+      status: 403,
+      error: VIDEO_ACCESS_BLOCK_MESSAGE,
+    }
+  }
+
   const video = await prisma.video.findUnique({
     where: { id: videoId },
   })
@@ -38,13 +53,6 @@ export async function resolveEmbedVideo(videoId: string, requestingDomain: strin
   }
 
   if (video.visibility === "DOMAIN_RESTRICTED") {
-    if (!requestingDomain) {
-      return {
-        status: 403,
-        error: VIDEO_ACCESS_BLOCK_MESSAGE,
-      }
-    }
-
     const isAllowed = await isDomainAllowedForVideo(videoId, requestingDomain)
     if (!isAllowed) {
       return { status: 403, error: VIDEO_ACCESS_BLOCK_MESSAGE }

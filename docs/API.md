@@ -209,7 +209,12 @@ Remove domain (ADMIN only).
 ## Embed Endpoint
 
 ### GET /api/embed/:id
-Get video for embedding (checks domain restrictions).
+Get video for embedding.
+
+Notes:
+- All iframe/embed requests must come from a registered active domain.
+- Even `PUBLIC` videos are blocked for websites that are not registered.
+- `DOMAIN_RESTRICTED` videos must also match the video's own allowed domain list.
 
 ---
 
