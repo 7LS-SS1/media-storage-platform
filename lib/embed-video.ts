@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { getSignedPlaybackUrl, normalizeR2Url } from "@/lib/r2"
 import { isDomainAllowedForVideo } from "@/lib/domain-security"
 import { parseStorageBucket } from "@/lib/storage-bucket"
+import { VIDEO_ACCESS_BLOCK_MESSAGE } from "@/lib/video-access-block"
 
 export interface EmbedVideoPayload {
   id: string
@@ -40,13 +41,13 @@ export async function resolveEmbedVideo(videoId: string, requestingDomain: strin
     if (!requestingDomain) {
       return {
         status: 403,
-        error: "Unable to verify domain. Please embed this video in a webpage that sends a referrer origin.",
+        error: VIDEO_ACCESS_BLOCK_MESSAGE,
       }
     }
 
     const isAllowed = await isDomainAllowedForVideo(videoId, requestingDomain)
     if (!isAllowed) {
-      return { status: 403, error: "This video cannot be embedded on this domain" }
+      return { status: 403, error: VIDEO_ACCESS_BLOCK_MESSAGE }
     }
   }
 

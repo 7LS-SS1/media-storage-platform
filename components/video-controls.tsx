@@ -46,6 +46,11 @@ const formatTime = (value: number) => {
   return `${paddedMinutes}:${paddedSeconds}`
 }
 
+const iconButtonClass =
+  "inline-flex h-11 w-11 items-center justify-center rounded-full transition hover:bg-white/10 sm:h-10 sm:w-10 sm:rounded-md"
+
+const desktopOnlyButtonClass = `${iconButtonClass} hidden sm:inline-flex`
+
 export function VideoControls({
   isPlaying,
   isMuted,
@@ -70,8 +75,11 @@ export function VideoControls({
     <div className="absolute inset-x-0 bottom-0">
       <div className="relative">
         {showSettings && (
-          <div className="absolute right-16 bottom-full mb-3 rounded-md bg-black/80 p-2 text-xs text-white shadow-lg">
-            <div className="mb-1 text-[10px] uppercase tracking-widest text-white/60">Speed</div>
+          <div className="absolute inset-x-3 bottom-full mb-2 rounded-xl border border-white/10 bg-black/90 p-3 text-xs text-white shadow-lg sm:inset-x-auto sm:right-16 sm:mb-3 sm:w-44 sm:rounded-md sm:p-2">
+            <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-widest text-white/60">
+              <span>Speed</span>
+              <span>{playbackRate}x</span>
+            </div>
             <div className="grid grid-cols-3 gap-1">
               {SPEEDS.map((speed) => (
                 <button
@@ -91,96 +99,99 @@ export function VideoControls({
             </div>
           </div>
         )}
-        <div className="flex items-center gap-3 bg-black/75 px-4 py-3 text-white">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => onSeekBy(-10)}
-              className="rounded p-2 transition hover:bg-white/10"
-              aria-label="Seek backward 10 seconds"
-            >
-              <SkipBack className="h-5 w-5" />
-            </button>
-            <button
-              type="button"
-              onClick={onTogglePlay}
-              className="rounded p-2 transition hover:bg-white/10"
-              aria-label={isPlaying ? "Pause" : "Play"}
-            >
-              {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
-            </button>
-            <button
-              type="button"
-              onClick={() => onSeekBy(10)}
-              className="rounded p-2 transition hover:bg-white/10"
-              aria-label="Seek forward 10 seconds"
-            >
-              <SkipForward className="h-5 w-5" />
-            </button>
-          </div>
+        <div className="bg-gradient-to-t from-black/90 via-black/75 to-transparent px-3 pb-3 pt-2 text-white sm:bg-black/75 sm:px-4 sm:py-3">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-[11px] sm:text-sm">
+              <span className="shrink-0 tabular-nums text-white/85">{formatTime(currentTime)}</span>
+              <input
+                type="range"
+                min={0}
+                max={1000}
+                value={hasDuration ? progress : 0}
+                onPointerDown={onSeekStart}
+                onPointerUp={onSeekEnd}
+                onPointerCancel={onSeekEnd}
+                onPointerLeave={() => {
+                  if (hasDuration) {
+                    onSeekEnd()
+                  }
+                }}
+                onChange={(event) => {
+                  const ratio = Number(event.target.value) / 1000
+                  if (hasDuration) {
+                    onSeek(ratio * duration)
+                  }
+                }}
+                disabled={!hasDuration}
+                aria-label="Seek"
+                className="video-range min-w-0 flex-1"
+              />
+              <span className="shrink-0 tabular-nums text-white/65">{formatTime(duration)}</span>
+            </div>
 
-          <div className="flex-1">
-            <input
-              type="range"
-              min={0}
-              max={1000}
-              value={hasDuration ? progress : 0}
-              onPointerDown={onSeekStart}
-              onPointerUp={onSeekEnd}
-              onPointerCancel={onSeekEnd}
-              onPointerLeave={() => {
-                if (hasDuration) {
-                  onSeekEnd()
-                }
-              }}
-              onChange={(event) => {
-                const ratio = Number(event.target.value) / 1000
-                if (hasDuration) {
-                  onSeek(ratio * duration)
-                }
-              }}
-              disabled={!hasDuration}
-              aria-label="Seek"
-              className="video-range w-full"
-            />
-          </div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-1 sm:gap-2">
+                <button
+                  type="button"
+                  onClick={() => onSeekBy(-10)}
+                  className={desktopOnlyButtonClass}
+                  aria-label="Seek backward 10 seconds"
+                >
+                  <SkipBack className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={onTogglePlay}
+                  className={`${iconButtonClass} bg-white/12 hover:bg-white/20`}
+                  aria-label={isPlaying ? "Pause" : "Play"}
+                >
+                  {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSeekBy(10)}
+                  className={desktopOnlyButtonClass}
+                  aria-label="Seek forward 10 seconds"
+                >
+                  <SkipForward className="h-5 w-5" />
+                </button>
+              </div>
 
-          <div className="flex items-center gap-3 text-sm">
-            <span className="tabular-nums">
-              {formatTime(currentTime)} / {formatTime(duration)}
-            </span>
-            <button
-              type="button"
-              onClick={onToggleMute}
-              className="rounded p-2 transition hover:bg-white/10"
-              aria-label={isMuted ? "Unmute" : "Mute"}
-            >
-              {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowSettings((prev) => !prev)}
-              className="rounded p-2 transition hover:bg-white/10"
-              aria-label="Playback settings"
-            >
-              <Settings className="h-5 w-5" />
-            </button>
-            <button
-              type="button"
-              onClick={onTogglePictureInPicture}
-              className="rounded p-2 transition hover:bg-white/10"
-              aria-label="Picture in picture"
-            >
-              <PictureInPicture2 className="h-5 w-5" />
-            </button>
-            <button
-              type="button"
-              onClick={onToggleFullscreen}
-              className="rounded p-2 transition hover:bg-white/10"
-              aria-label="Fullscreen"
-            >
-              <Maximize className="h-5 w-5" />
-            </button>
+              <div className="flex items-center gap-1 sm:gap-2">
+                <button
+                  type="button"
+                  onClick={onToggleMute}
+                  className={iconButtonClass}
+                  aria-label={isMuted ? "Unmute" : "Mute"}
+                >
+                  {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSettings((prev) => !prev)}
+                  className={iconButtonClass}
+                  aria-label="Playback settings"
+                >
+                  <Settings className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={onTogglePictureInPicture}
+                  className={desktopOnlyButtonClass}
+                  aria-label="Picture in picture"
+                >
+                  <PictureInPicture2 className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={onToggleFullscreen}
+                  className={iconButtonClass}
+                  aria-label="Fullscreen"
+                >
+                  <Maximize className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

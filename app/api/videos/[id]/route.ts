@@ -1,10 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
+import { canDomainAccessVideo, getVerifiedRequestDomain } from "@/lib/domain-security"
 import { prisma } from "@/lib/prisma"
 import { canManageVideos, canViewAllVideos } from "@/lib/roles"
-import { extractR2Key, getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib/r2"
+import { deleteFromR2, extractR2Key, getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib/r2"
 import { normalizeActors, toActorNames } from "@/lib/actors"
 import { mergeTags, normalizeTags } from "@/lib/tags"
+import { VIDEO_ACCESS_BLOCK_MESSAGE } from "@/lib/video-access-block"
 import { normalizeIdList, updateVideoSchema } from "@/lib/validation"
 import { markMp4VideosReady } from "@/lib/video-status"
 import { parseStorageBucket } from "@/lib/storage-bucket"
@@ -51,7 +53,6 @@ const mapPluginVideo = (video: {
     updated_at: video.updatedAt,
   }
 }
-import { deleteFromR2 } from "@/lib/r2"
 
 // GET - Get video by ID
 export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -110,7 +111,20 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     }
 
     const userAgent = request.headers.get("user-agent") ?? ""
-    const isPluginRequest = Boolean(request.headers.get("authorization")) || userAgent.includes("7LS-Video-Publisher")
+    const isPluginRequest =
+      request.nextUrl.pathname.startsWith("/api/plugin/") ||
+      Boolean(request.headers.get("authorization")) ||
+      userAgent.includes("7LS-Video-Publisher")
+    const requestDomain = isPluginRequest ? await getVerifiedRequestDomain(request) : null
+
+    if (isPluginRequest && !requestDomain) {
+      return NextResponse.json({ error: VIDEO_ACCESS_BLOCK_MESSAGE }, { status: 403 })
+    }
+
+    if (isPluginRequest && !canDomainAccessVideo(video, requestDomain)) {
+      return NextResponse.json({ error: VIDEO_ACCESS_BLOCK_MESSAGE }, { status: 403 })
+    }
+
     const resolvedVideoUrl = await getSignedPlaybackUrl(video.videoUrl, 3600, bucket)
     const actorNames = video.actors.map((actor) => actor.name)
     const normalizedVideo = {

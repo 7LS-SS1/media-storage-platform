@@ -9,6 +9,21 @@ type UseVideoControlsOptions = {
   sourceUrl?: string | null
 }
 
+type WebkitDocument = Document & {
+  webkitFullscreenElement?: Element | null
+  webkitExitFullscreen?: (() => Promise<void>) | (() => void)
+}
+
+type FullscreenCapableElement = HTMLElement & {
+  webkitRequestFullscreen?: (() => Promise<void>) | (() => void)
+}
+
+type FullscreenCapableVideo = HTMLVideoElement & {
+  webkitDisplayingFullscreen?: boolean
+  webkitEnterFullscreen?: () => void
+  webkitExitFullscreen?: () => void
+}
+
 export function useVideoControls({ videoRef, containerRef, sourceUrl }: UseVideoControlsOptions) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
@@ -172,14 +187,39 @@ export function useVideoControls({ videoRef, containerRef, sourceUrl }: UseVideo
 
   const toggleFullscreen = useCallback(async () => {
     if (typeof document === "undefined") return
-    const target = containerRef?.current ?? videoRef.current
-    if (!target) return
+    const doc = document as WebkitDocument
+    const video = videoRef.current as FullscreenCapableVideo | null
+    const target = (containerRef?.current ?? videoRef.current) as FullscreenCapableElement | null
+    if (!video || !target) return
 
     try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen()
-      } else if (target.requestFullscreen) {
+      if (doc.fullscreenElement) {
+        await doc.exitFullscreen()
+        return
+      }
+
+      if (doc.webkitFullscreenElement && doc.webkitExitFullscreen) {
+        await Promise.resolve(doc.webkitExitFullscreen())
+        return
+      }
+
+      if (video.webkitDisplayingFullscreen && video.webkitExitFullscreen) {
+        video.webkitExitFullscreen()
+        return
+      }
+
+      if (target.requestFullscreen) {
         await target.requestFullscreen()
+        return
+      }
+
+      if (target.webkitRequestFullscreen) {
+        await Promise.resolve(target.webkitRequestFullscreen())
+        return
+      }
+
+      if (video.webkitEnterFullscreen) {
+        video.webkitEnterFullscreen()
       }
     } catch {
       // Ignore fullscreen failures.

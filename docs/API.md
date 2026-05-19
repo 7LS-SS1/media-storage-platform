@@ -17,6 +17,7 @@ For all API endpoints:
 - In production, local domains (\`localhost\`, \`127.0.0.1\`, \`::1\`, \`.local\`) are rejected even if present in allowlist.
 - API tokens can optionally set \`boundDomain\`. When set, that token can only be used from that exact domain.
 - For backward compatibility, tokens without \`boundDomain\` still use global domain allowlist checks.
+- Publish/list endpoints for WordPress integrations only return videos that the requesting domain is allowed to publish. Private videos are never exposed through these endpoints.
 
 ---
 

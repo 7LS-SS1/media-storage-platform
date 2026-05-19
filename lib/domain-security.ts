@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server"
+import type { Prisma } from "@prisma/client"
 import { prisma } from "./prisma"
 
 export const DOMAIN_ENFORCED_API_PREFIXES = [
@@ -104,17 +105,21 @@ export async function isDomainAllowedForVideo(videoId: string, domain: string): 
 }
 
 export async function isDomainGloballyAllowed(domain: string): Promise<boolean> {
-  if (!isRequestDomainAcceptable(domain)) {
+  const normalizedDomain = normalizeDomain(domain)
+
+  if (!isRequestDomainAcceptable(normalizedDomain)) {
     return false
   }
 
-  const allowedDomains = await prisma.allowedDomain.findMany({
-    where: { isActive: true },
-    select: { domain: true },
+  const allowedDomain = await prisma.allowedDomain.findFirst({
+    where: {
+      isActive: true,
+      domain: normalizedDomain,
+    },
+    select: { id: true },
   })
-  return allowedDomains.some(
-    (allowedDomain) => isAllowedDomainEntry(allowedDomain.domain) && domainsMatch(domain, allowedDomain.domain),
-  )
+
+  return Boolean(allowedDomain)
 }
 
 export function isDomainCheckRequired(pathname: string): boolean {
@@ -125,6 +130,64 @@ export async function isRequestDomainAllowed(request: NextRequest): Promise<bool
   const domain = getRequestingDomain(request)
   if (!domain) return false
   return isDomainGloballyAllowed(domain)
+}
+
+export async function getVerifiedRequestDomain(request: NextRequest): Promise<string | null> {
+  const domain = getRequestingDomain(request)
+  if (!domain) return null
+
+  const isAllowed = await isDomainGloballyAllowed(domain)
+  if (!isAllowed) return null
+
+  return normalizeDomain(domain)
+}
+
+export function buildVideoAccessWhereForDomain(domain: string): Prisma.VideoWhereInput {
+  const normalizedDomain = normalizeDomain(domain)
+
+  return {
+    OR: [
+      { visibility: "PUBLIC" },
+      {
+        visibility: "DOMAIN_RESTRICTED",
+        allowedDomains: {
+          some: {
+            domain: {
+              isActive: true,
+              domain: normalizedDomain,
+            },
+          },
+        },
+      },
+    ],
+  }
+}
+
+type DomainScopedVideo = {
+  visibility: string
+  allowedDomains?: Array<{
+    domain: {
+      domain: string
+      isActive: boolean
+    }
+  }> | null
+}
+
+export function canDomainAccessVideo(video: DomainScopedVideo, domain: string | null): boolean {
+  if (video.visibility === "PUBLIC") {
+    return true
+  }
+
+  if (video.visibility !== "DOMAIN_RESTRICTED" || !domain) {
+    return false
+  }
+
+  return (video.allowedDomains ?? []).some(
+    ({ domain: allowedDomain }) =>
+      allowedDomain.isActive &&
+      isAllowedDomainEntry(allowedDomain.domain) &&
+      domainsMatch(domain, allowedDomain.domain),
+  )
 }
 
 type HeaderSource = Pick<Headers, "get">

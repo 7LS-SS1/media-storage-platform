@@ -4,7 +4,9 @@ import { prisma } from "@/lib/prisma"
 import { canManageVideos, canViewAllVideos } from "@/lib/roles"
 import { getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib/r2"
 import { normalizeActors, toActorNames } from "@/lib/actors"
+import { buildVideoAccessWhereForDomain, getVerifiedRequestDomain } from "@/lib/domain-security"
 import { mergeTags, normalizeTags } from "@/lib/tags"
+import { VIDEO_ACCESS_BLOCK_MESSAGE } from "@/lib/video-access-block"
 import { createVideoSchema, normalizeIdList, videoQuerySchema } from "@/lib/validation"
 import { enqueueVideoTranscode, shouldTranscodeToMp4 } from "@/lib/video-transcode"
 import { enqueueVideoThumbnail } from "@/lib/video-thumbnail"
@@ -246,10 +248,16 @@ export async function GET(request: NextRequest) {
     }
     const userAgent = request.headers.get("user-agent") ?? ""
     const isPluginRequest =
+      request.nextUrl.pathname.startsWith("/api/plugin/") ||
       searchParams.has("per_page") ||
       searchParams.has("project_id") ||
       searchParams.has("since") ||
       userAgent.includes("7LS-Video-Publisher")
+    const requestDomain = isPluginRequest ? await getVerifiedRequestDomain(request) : null
+
+    if (isPluginRequest && !requestDomain) {
+      return NextResponse.json({ error: VIDEO_ACCESS_BLOCK_MESSAGE }, { status: 403 })
+    }
 
     // Build where clause
     const filters: any[] = []
@@ -290,6 +298,11 @@ export async function GET(request: NextRequest) {
     }
 
     if (isPluginRequest) {
+      const verifiedRequestDomain = requestDomain
+      if (!verifiedRequestDomain) {
+        return NextResponse.json({ error: VIDEO_ACCESS_BLOCK_MESSAGE }, { status: 403 })
+      }
+      filters.push(buildVideoAccessWhereForDomain(verifiedRequestDomain))
       filters.push({ status: "READY" })
       filters.push({ OR: [{ mimeType: "video/mp4" }, { videoUrl: { endsWith: ".mp4" } }] })
     } else if (!canViewAllVideos(user.role)) {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { VideoControls } from "@/components/video-controls"
 import { useVideoControls } from "@/hooks/use-video-controls"
+import { isBlockedVideoAccessError, toBlockedVideoAccessMessage } from "@/lib/video-access-block"
 
 interface VideoPlayerProps {
   videoId: string
@@ -26,6 +27,7 @@ export function VideoPlayer({ videoId }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const playerRef = useRef<any | null>(null)
   const hasTrackedRef = useRef(false)
+  const hasShownBlockedAlertRef = useRef(false)
   const videoType = useMemo(() => {
     if (!videoUrl) return "video/mp4"
     const cleanUrl = videoUrl.split("?")[0].toLowerCase()
@@ -45,6 +47,20 @@ export function VideoPlayer({ videoId }: VideoPlayerProps) {
   useEffect(() => {
     hasTrackedRef.current = false
   }, [videoId])
+
+  useEffect(() => {
+    if (!isBlockedVideoAccessError(error)) {
+      hasShownBlockedAlertRef.current = false
+      return
+    }
+
+    if (hasShownBlockedAlertRef.current) {
+      return
+    }
+
+    hasShownBlockedAlertRef.current = true
+    window.alert(toBlockedVideoAccessMessage(error))
+  }, [error])
 
   useEffect(() => {
     let isMounted = true
@@ -78,13 +94,13 @@ export function VideoPlayer({ videoId }: VideoPlayerProps) {
           }
           const embedError = await embedResponse.json().catch(() => null)
           if (isMounted) {
-            setError(embedError?.error || "Failed to load video")
+            setError(toBlockedVideoAccessMessage(embedError?.error, "Failed to load video"))
           }
           return
         }
         const data = await response.json().catch(() => null)
         if (isMounted) {
-          setError(data?.error || "Failed to load video")
+          setError(toBlockedVideoAccessMessage(data?.error, "Failed to load video"))
         }
       } catch (error) {
         console.error("Failed to fetch video:", error)

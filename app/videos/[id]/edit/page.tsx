@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Save, X } from "lucide-react"
+import { ArrowLeft, Loader2, Save, TrendingUp, X } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -18,6 +18,7 @@ import { StudioSelect } from "@/components/studio-select"
 import { AV_GENRES } from "@/lib/av-genres"
 import { STANDARD_TAGS } from "@/lib/standard-tags"
 import { TAG_LIMIT } from "@/lib/tag-constraints"
+import { mergeTagsWithLimit } from "@/lib/tags"
 
 interface Category {
   id: string
@@ -49,6 +50,11 @@ interface Video {
   releaseDate?: string | null
   visibility: "PUBLIC" | "PRIVATE" | "DOMAIN_RESTRICTED"
   allowedDomains?: VideoAllowedDomain[]
+}
+
+interface PopularTagResponse {
+  error?: string
+  tags?: Array<{ tag?: string; count?: number }>
 }
 
 interface PageProps {
@@ -87,6 +93,7 @@ export default function EditVideoPage({ params }: PageProps) {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [uploadStatus, setUploadStatus] = useState("")
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [isAddingPopularTags, setIsAddingPopularTags] = useState(false)
 
   const normalizedTags = useMemo(() => new Set(tags.map((tag) => tag.toLowerCase())), [tags])
   const isAv = storageBucket === "jav"
@@ -95,8 +102,8 @@ export default function EditVideoPage({ params }: PageProps) {
   const tagPlaceholder = isAv
     ? "พิมพ์ประเภทหนังแล้วกด Enter หรือใส่คอมม่า"
     : "พิมพ์แท็กแล้วกด Enter หรือใส่คอมม่า"
-  const tagOptionsLabel = isAv ? "ประเภทหนังยอดนิยม" : "แท็กมาตรฐาน"
-  const addAllTagLabel = isAv ? "เพิ่มทั้งหมด" : "เพิ่มแท๊กทั้งหมด"
+  const tagOptionsLabel = isAv ? "ประเภทหนังแนะนำ" : "แท็กมาตรฐาน"
+  const addAllTagLabel = isAv ? "เพิ่มทั้งหมด" : "เพิ่มแท็กทั้งหมด"
   const addTagLabel = isAv ? "เพิ่มประเภท" : "เพิ่มแท็ก"
   const tagLimitMessage = `เพิ่มแท็กได้สูงสุด ${TAG_LIMIT} รายการ`
 
@@ -284,22 +291,8 @@ export default function EditVideoPage({ params }: PageProps) {
       .map((tag) => tag.trim())
       .filter(Boolean)
     if (nextTags.length === 0) return
-    let hitLimit = false
-    setTags((current) => {
-      const seen = new Set(current.map((tag) => tag.toLowerCase()))
-      const merged = [...current]
-      for (const tag of nextTags) {
-        const key = tag.toLowerCase()
-        if (seen.has(key)) continue
-        if (merged.length >= TAG_LIMIT) {
-          hitLimit = true
-          break
-        }
-        seen.add(key)
-        merged.push(tag)
-      }
-      return merged
-    })
+    const { tags: merged, hitLimit } = mergeTagsWithLimit(tags, nextTags, TAG_LIMIT)
+    setTags(merged)
     if (hitLimit) {
       setTagError(tagLimitMessage)
     } else {
@@ -346,26 +339,55 @@ export default function EditVideoPage({ params }: PageProps) {
   }
 
   const addAllTagOptions = () => {
-    let hitLimit = false
-    setTags((current) => {
-      const seen = new Set(current.map((value) => value.toLowerCase()))
-      const merged = [...current]
-      for (const tag of tagOptions) {
-        const key = tag.toLowerCase()
-        if (seen.has(key)) continue
-        if (merged.length >= TAG_LIMIT) {
-          hitLimit = true
-          break
-        }
-        seen.add(key)
-        merged.push(tag)
-      }
-      return merged
-    })
+    const { tags: merged, hitLimit } = mergeTagsWithLimit(tags, tagOptions, TAG_LIMIT)
+    setTags(merged)
     if (hitLimit) {
       setTagError(tagLimitMessage)
     } else {
       setTagError(null)
+    }
+  }
+
+  const handleAddPopularTags = async () => {
+    setIsAddingPopularTags(true)
+    try {
+      const response = await fetch(`/api/tags/popular?storageBucket=${storageBucket}&limit=20`, {
+        credentials: "include",
+      })
+      const data = await response.json().catch(() => ({} as PopularTagResponse))
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to fetch popular tags")
+      }
+
+      const popularTags = Array.isArray(data.tags)
+        ? data.tags
+            .map((item: { tag?: string; count?: number }) => item?.tag?.trim())
+            .filter((value: string | undefined): value is string => Boolean(value))
+        : []
+
+      if (popularTags.length === 0) {
+        toast.error("ยังไม่มี Tag ยอดนิยมในระบบ")
+        return
+      }
+
+      const { tags: merged, addedCount, hitLimit } = mergeTagsWithLimit(tags, popularTags, TAG_LIMIT)
+      setTags(merged)
+      if (hitLimit) {
+        setTagError(tagLimitMessage)
+      } else {
+        setTagError(null)
+      }
+
+      if (addedCount === 0) {
+        toast.success("มี Tag ยอดนิยมครบอยู่แล้ว")
+      } else {
+        toast.success(`เพิ่ม Tag ยอดนิยมแล้ว ${addedCount} รายการ`)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "ดึง Tag ยอดนิยมไม่สำเร็จ"
+      toast.error(message)
+    } finally {
+      setIsAddingPopularTags(false)
     }
   }
 
@@ -623,6 +645,25 @@ export default function EditVideoPage({ params }: PageProps) {
                       >
                         {addTagLabel}
                       </Button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={handleAddPopularTags}
+                        disabled={isAddingPopularTags || tags.length >= TAG_LIMIT}
+                      >
+                        {isAddingPopularTags ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <TrendingUp className="mr-2 h-4 w-4" />
+                        )}
+                        เพิ่ม Tag ยอดนิยม 20 อันดับ
+                      </Button>
+                      <p className="text-xs text-muted-foreground">
+                        ดึงแท็กที่ถูกใช้ซ้ำบ่อยที่สุดของหมวดนี้มาเพิ่มอัตโนมัติ
+                      </p>
                     </div>
                     {tags.length > 0 && (
                       <div className="flex flex-wrap gap-2">

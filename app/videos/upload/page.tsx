@@ -44,6 +44,7 @@ import { StudioSelect } from "@/components/studio-select"
 import { AV_GENRES } from "@/lib/av-genres"
 import { STANDARD_TAGS } from "@/lib/standard-tags"
 import { TAG_LIMIT } from "@/lib/tag-constraints"
+import { mergeTagsWithLimit } from "@/lib/tags"
 import { SEO_PASS_SCORE } from "@/lib/video-seo"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -57,6 +58,11 @@ interface Domain {
   id: string
   domain: string
   isActive: boolean
+}
+
+interface PopularTagResponse {
+  error?: string
+  tags?: Array<{ tag?: string; count?: number }>
 }
 
 interface SeoCheck {
@@ -130,6 +136,7 @@ export default function UploadVideoPage() {
   const [seoChecks, setSeoChecks] = useState<SeoCheck[]>([])
   const [seoRecommendations, setSeoRecommendations] = useState<string[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
+  const [isAddingPopularTags, setIsAddingPopularTags] = useState(false)
 
   // Track form data fingerprint used for last SEO run so we can show "stale" warning
   const lastSeoFingerprint = useRef<string | null>(null)
@@ -158,6 +165,7 @@ export default function UploadVideoPage() {
   const tagLabel = isAv ? "ประเภทหนัง" : "แท็ก"
   const tagPlaceholder = isAv ? "พิมพ์ประเภทหนังแล้วกด Enter" : "พิมพ์แท็กแล้วกด Enter"
   const tagLimitMessage = `เพิ่มแท็กได้สูงสุด ${TAG_LIMIT} รายการ`
+  const addAllTagLabel = isAv ? "เพิ่มทั้งหมด" : "เพิ่มแท็กทั้งหมด"
   const selectedCategoryNames = useMemo(
     () => categories.filter((category) => categoryIds.includes(category.id)).map((category) => category.name),
     [categories, categoryIds],
@@ -252,22 +260,8 @@ export default function UploadVideoPage() {
       .map((tag) => tag.trim())
       .filter(Boolean)
     if (nextTags.length === 0) return
-    let hitLimit = false
-    setTags((current) => {
-      const seen = new Set(current.map((tag) => tag.toLowerCase()))
-      const merged = [...current]
-      for (const tag of nextTags) {
-        const key = tag.toLowerCase()
-        if (seen.has(key)) continue
-        if (merged.length >= TAG_LIMIT) {
-          hitLimit = true
-          break
-        }
-        seen.add(key)
-        merged.push(tag)
-      }
-      return merged
-    })
+    const { tags: merged, hitLimit } = mergeTagsWithLimit(tags, nextTags, TAG_LIMIT)
+    setTags(merged)
     if (hitLimit) setTagError(tagLimitMessage)
     else setTagError(null)
   }
@@ -301,6 +295,53 @@ export default function UploadVideoPage() {
       }
       return [...current, tag]
     })
+    if (hitLimit) setTagError(tagLimitMessage)
+    else setTagError(null)
+  }
+
+  const handleAddPopularTags = async () => {
+    setIsAddingPopularTags(true)
+    try {
+      const response = await fetch(`/api/tags/popular?storageBucket=${storageBucket}&limit=20`, {
+        credentials: "include",
+      })
+      const data = await response.json().catch(() => ({} as PopularTagResponse))
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to fetch popular tags")
+      }
+
+      const popularTags = Array.isArray(data.tags)
+        ? data.tags
+            .map((item: { tag?: string; count?: number }) => item?.tag?.trim())
+            .filter((value: string | undefined): value is string => Boolean(value))
+        : []
+
+      if (popularTags.length === 0) {
+        toast.error("ยังไม่มี Tag ยอดนิยมในระบบ")
+        return
+      }
+
+      const { tags: merged, addedCount, hitLimit } = mergeTagsWithLimit(tags, popularTags, TAG_LIMIT)
+      setTags(merged)
+      if (hitLimit) setTagError(tagLimitMessage)
+      else setTagError(null)
+
+      if (addedCount === 0) {
+        toast.success("มี Tag ยอดนิยมครบอยู่แล้ว")
+      } else {
+        toast.success(`เพิ่ม Tag ยอดนิยมแล้ว ${addedCount} รายการ`)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "ดึง Tag ยอดนิยมไม่สำเร็จ"
+      toast.error(message)
+    } finally {
+      setIsAddingPopularTags(false)
+    }
+  }
+
+  const addAllTagOptions = () => {
+    const { tags: merged, hitLimit } = mergeTagsWithLimit(tags, tagOptions, TAG_LIMIT)
+    setTags(merged)
     if (hitLimit) setTagError(tagLimitMessage)
     else setTagError(null)
   }
@@ -1353,6 +1394,23 @@ export default function UploadVideoPage() {
                       เพิ่ม
                     </Button>
                   </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleAddPopularTags}
+                      disabled={isAddingPopularTags || tags.length >= TAG_LIMIT}
+                    >
+                      {isAddingPopularTags ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <TrendingUp className="mr-2 h-4 w-4" />
+                      )}
+                      เพิ่ม Tag ยอดนิยม 20 อันดับ
+                    </Button>
+                    <p className="text-xs text-slate-500">ดึงแท็กที่ถูกใช้ซ้ำบ่อยที่สุดของหมวดนี้มาเพิ่มอัตโนมัติ</p>
+                  </div>
                   {tags.length > 0 && (
                     <div className="flex flex-wrap gap-2">
                       {tags.map((tag) => (
@@ -1374,7 +1432,18 @@ export default function UploadVideoPage() {
 
                   {/* Quick tags */}
                   <div className="space-y-2">
-                    <p className="text-xs text-slate-500">แท็กยอดนิยม — คลิกเพื่อเพิ่ม</p>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-slate-500">แท็กแนะนำ — คลิกเพื่อเพิ่ม</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={addAllTagOptions}
+                        disabled={tags.length >= TAG_LIMIT}
+                      >
+                        {addAllTagLabel}
+                      </Button>
+                    </div>
                     <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-2 rounded-lg bg-slate-50 border border-slate-200">
                       {tagOptions.map((tag) => {
                         const selected = normalizedTags.has(tag.toLowerCase())

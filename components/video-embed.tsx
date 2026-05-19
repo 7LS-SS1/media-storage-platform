@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AlertCircle, Lock } from "lucide-react"
 import { VideoControls } from "@/components/video-controls"
 import { useVideoControls } from "@/hooks/use-video-controls"
+import { isBlockedVideoAccessError, toBlockedVideoAccessMessage } from "@/lib/video-access-block"
 
 interface VideoEmbedProps {
   videoId: string
@@ -24,9 +25,10 @@ export function VideoEmbed({ videoId, initialVideo, initialError }: VideoEmbedPr
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const playerRef = useRef<any | null>(null)
   const hasTrackedRef = useRef(false)
+  const hasShownBlockedAlertRef = useRef(false)
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
   const video = initialVideo
-  const error = initialError ?? runtimeError
+  const error = toBlockedVideoAccessMessage(initialError ?? runtimeError, null)
   const videoUrl = video?.videoUrl ?? null
   const videoType = useMemo(() => {
     if (!videoUrl) return "video/mp4"
@@ -47,6 +49,20 @@ export function VideoEmbed({ videoId, initialVideo, initialError }: VideoEmbedPr
   useEffect(() => {
     hasTrackedRef.current = false
   }, [videoId])
+
+  useEffect(() => {
+    if (!isBlockedVideoAccessError(error)) {
+      hasShownBlockedAlertRef.current = false
+      return
+    }
+
+    if (hasShownBlockedAlertRef.current) {
+      return
+    }
+
+    hasShownBlockedAlertRef.current = true
+    window.alert(toBlockedVideoAccessMessage(error))
+  }, [error])
 
   const trackView = useCallback(async () => {
     if (hasTrackedRef.current) return
@@ -118,7 +134,7 @@ export function VideoEmbed({ videoId, initialVideo, initialError }: VideoEmbedPr
     return (
       <div className="w-full h-screen flex items-center justify-center bg-black">
         <div className="text-white text-center space-y-4">
-          {error.includes("domain") ? (
+          {isBlockedVideoAccessError(error) ? (
             <Lock className="h-12 w-12 mx-auto text-red-500" />
           ) : (
             <AlertCircle className="h-12 w-12 mx-auto text-red-500" />
