@@ -46,6 +46,14 @@ import { STANDARD_TAGS } from "@/lib/standard-tags"
 import { TAG_LIMIT } from "@/lib/tag-constraints"
 import { mergeTagsWithLimit } from "@/lib/tags"
 import { SEO_PASS_SCORE } from "@/lib/video-seo"
+import {
+  buildUploadProxyUrl,
+  buildUploadXhrErrorMessage,
+  extractUploadStatusCode,
+  normalizeUploadErrorText,
+  shouldUseUploadProxyFallback,
+  truncateUploadMessage,
+} from "@/lib/upload-client"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -577,47 +585,28 @@ export default function UploadVideoPage() {
   // ── Upload Helpers ────────────────────────────────────────────────────────────
   const MULTIPART_FORCE_THRESHOLD = 1 * 1024 * 1024 * 1024
 
-  const normalizeErrorText = (value: string) => value.replace(/\s+/g, " ").trim()
-
-  const truncateMessage = (value: string, max = 180) =>
-    value.length > max ? `${value.slice(0, max - 1)}…` : value
-
-  const extractStatusCode = (message: string) => {
-    const match = message.match(/status\s*(\d+)/i)
-    if (!match) return null
-    const code = Number(match[1])
-    return Number.isFinite(code) ? code : null
-  }
-
-  const buildXhrErrorMessage = (xhr: XMLHttpRequest, fallback: string) => {
-    if (xhr.status === 0) return `${fallback}: การเชื่อมต่อถูกบล็อก (CORS) หรือเน็ตหลุด`
-    const responseText = normalizeErrorText(xhr.responseText || "")
-    if (responseText) return `${fallback} (status ${xhr.status}): ${truncateMessage(responseText)}`
-    return `${fallback} (status ${xhr.status})`
-  }
-
   const formatUploadError = (error: unknown) => {
     const raw = error instanceof Error ? error.message : ""
-    const message = normalizeErrorText(raw)
+    const message = normalizeUploadErrorText(raw)
     if (!message) return "อัปโหลดไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"
     if (message.includes("Missing R2 configuration")) {
       const missing = message.split(":").slice(1).join(":").trim()
       return `ตั้งค่า R2 ไม่ครบ${missing ? ` (${missing})` : ""}`
     }
-    if (message.includes("Invalid file type")) return `ชนิดไฟล์ไม่รองรับ: ${truncateMessage(message)}`
-    if (message.includes("File too large")) return `ไฟล์ใหญ่เกินกำหนด: ${truncateMessage(message)}`
+    if (message.includes("Invalid file type")) return `ชนิดไฟล์ไม่รองรับ: ${truncateUploadMessage(message)}`
+    if (message.includes("File too large")) return `ไฟล์ใหญ่เกินกำหนด: ${truncateUploadMessage(message)}`
     if (message.includes("Unauthorized")) return "เซสชันหมดอายุหรือยังไม่ได้เข้าสู่ระบบ"
     if (message.includes("Forbidden")) return "สิทธิ์ไม่เพียงพอสำหรับการอัปโหลด"
     if (message.toLowerCase().includes("etag")) return "อัปโหลดไม่สำเร็จ: ไม่พบ ETag จาก R2"
-    const statusCode = extractStatusCode(message)
+    const statusCode = extractUploadStatusCode(message)
     if (statusCode === 0) return "อัปโหลดไม่สำเร็จ: ถูกบล็อกโดย CORS หรือเน็ตหลุด"
     if (statusCode === 403) return "อัปโหลดไม่สำเร็จ: ลิงก์อัปโหลดหมดอายุหรือสิทธิ์ไม่ถูกต้อง (403)"
     if (statusCode === 413) return "อัปโหลดไม่สำเร็จ: ไฟล์ใหญ่เกินข้อจำกัดของเซิร์ฟเวอร์ (413)"
     if (statusCode === 429) return "อัปโหลดไม่สำเร็จ: คำขอมากเกินไป กรุณารอสักครู่ (429)"
-    return truncateMessage(message)
+    return truncateUploadMessage(message)
   }
 
-  const uploadPart = (uploadUrl: string, blob: Blob, onPartProgress: (loaded: number) => void) =>
+  const uploadPartDirect = (uploadUrl: string, blob: Blob, onPartProgress: (loaded: number) => void) =>
     new Promise<string>((resolve, reject) => {
       const xhr = new XMLHttpRequest()
       xhr.open("PUT", uploadUrl)
@@ -634,12 +623,67 @@ export default function UploadVideoPage() {
           }
           resolve(etag.replace(/"/g, ""))
         } else {
-          reject(new Error(buildXhrErrorMessage(xhr, "อัปโหลดส่วนย่อยไม่สำเร็จ")))
+          reject(new Error(buildUploadXhrErrorMessage(xhr, "อัปโหลดส่วนย่อยไม่สำเร็จ")))
         }
       }
-      xhr.onerror = () => reject(new Error(buildXhrErrorMessage(xhr, "อัปโหลดส่วนย่อยไม่สำเร็จ")))
+      xhr.onerror = () => reject(new Error(buildUploadXhrErrorMessage(xhr, "อัปโหลดส่วนย่อยไม่สำเร็จ")))
       xhr.send(blob)
     })
+
+  const uploadPartViaProxy = (
+    blob: Blob,
+    partNumber: number,
+    uploadInfo: { uploadId: string; key: string },
+    onPartProgress: (loaded: number) => void,
+    bucket: StorageBucket,
+  ) =>
+    new Promise<string>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open(
+        "PUT",
+        buildUploadProxyUrl("/api/upload-multipart", {
+          key: uploadInfo.key,
+          uploadId: uploadInfo.uploadId,
+          partNumber,
+          storageBucket: bucket,
+        }),
+      )
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable) return
+        onPartProgress(event.loaded)
+      }
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          const etag = xhr.getResponseHeader("ETag") || xhr.getResponseHeader("etag")
+          if (!etag) {
+            reject(new Error("Missing ETag from upload response"))
+            return
+          }
+          resolve(etag.replace(/"/g, ""))
+        } else {
+          reject(new Error(buildUploadXhrErrorMessage(xhr, "อัปโหลดส่วนย่อยไม่สำเร็จ")))
+        }
+      }
+      xhr.onerror = () => reject(new Error(buildUploadXhrErrorMessage(xhr, "อัปโหลดส่วนย่อยไม่สำเร็จ")))
+      xhr.send(blob)
+    })
+
+  const uploadPart = async (
+    uploadUrl: string,
+    blob: Blob,
+    partNumber: number,
+    uploadInfo: { uploadId: string; key: string },
+    onPartProgress: (loaded: number) => void,
+    bucket: StorageBucket,
+  ) => {
+    try {
+      return await uploadPartDirect(uploadUrl, blob, onPartProgress)
+    } catch (error) {
+      if (!shouldUseUploadProxyFallback(error)) throw error
+      onPartProgress(0)
+      return await uploadPartViaProxy(blob, partNumber, uploadInfo, onPartProgress, bucket)
+    }
+  }
 
   const uploadMultipartFile = async (
     file: File,
@@ -672,10 +716,17 @@ export default function UploadVideoPage() {
         const partInfo = await partResponse.json()
         if (!partResponse.ok) throw new Error(partInfo.error || "Failed to prepare upload part")
 
-        const etag = await uploadPart(partInfo.uploadUrl, blob, (loaded) => {
-          const totalLoaded = uploadedBytes + loaded
-          onProgress(Math.round((totalLoaded / file.size) * 100))
-        })
+        const etag = await uploadPart(
+          partInfo.uploadUrl,
+          blob,
+          partNumber,
+          uploadInfo,
+          (loaded) => {
+            const totalLoaded = uploadedBytes + loaded
+            onProgress(Math.round((totalLoaded / file.size) * 100))
+          },
+          bucket,
+        )
 
         uploadedBytes += blob.size
         parts.push({ ETag: etag, PartNumber: partNumber })
@@ -750,7 +801,11 @@ export default function UploadVideoPage() {
       return uploadInfo
     }
 
-    const uploadSinglePut = (uploadInfo: { uploadUrl: string; publicUrl: string; contentType: string }) =>
+    const uploadSinglePutDirect = (uploadInfo: {
+      uploadUrl: string
+      publicUrl: string
+      contentType: string
+    }) =>
       new Promise<{ url: string; size: number; type: string }>((resolve, reject) => {
         const xhr = new XMLHttpRequest()
         xhr.open("PUT", uploadInfo.uploadUrl)
@@ -763,12 +818,60 @@ export default function UploadVideoPage() {
           if (xhr.status >= 200 && xhr.status < 300) {
             resolve({ url: uploadInfo.publicUrl, size: file.size, type: uploadInfo.contentType })
           } else {
-            reject(new Error(buildXhrErrorMessage(xhr, "อัปโหลดไฟล์ไม่สำเร็จ")))
+            reject(new Error(buildUploadXhrErrorMessage(xhr, "อัปโหลดไฟล์ไม่สำเร็จ")))
           }
         }
-        xhr.onerror = () => reject(new Error(buildXhrErrorMessage(xhr, "อัปโหลดไฟล์ไม่สำเร็จ")))
+        xhr.onerror = () => reject(new Error(buildUploadXhrErrorMessage(xhr, "อัปโหลดไฟล์ไม่สำเร็จ")))
         xhr.send(file)
       })
+
+    const uploadSinglePutViaProxy = (uploadInfo: {
+      publicUrl: string
+      contentType: string
+      key: string
+      storageBucket: StorageBucket
+    }) =>
+      new Promise<{ url: string; size: number; type: string }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open(
+          "PUT",
+          buildUploadProxyUrl("/api/upload-proxy", {
+            key: uploadInfo.key,
+            contentType: uploadInfo.contentType,
+            storageBucket: uploadInfo.storageBucket,
+          }),
+        )
+        xhr.setRequestHeader("Content-Type", uploadInfo.contentType)
+        xhr.upload.onprogress = (event) => {
+          if (!event.lengthComputable) return
+          onProgress(Math.round((event.loaded / event.total) * 100))
+        }
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve({ url: uploadInfo.publicUrl, size: file.size, type: uploadInfo.contentType })
+          } else {
+            reject(new Error(buildUploadXhrErrorMessage(xhr, "อัปโหลดไฟล์ไม่สำเร็จ")))
+          }
+        }
+        xhr.onerror = () => reject(new Error(buildUploadXhrErrorMessage(xhr, "อัปโหลดไฟล์ไม่สำเร็จ")))
+        xhr.send(file)
+      })
+
+    const uploadSinglePut = async (uploadInfo: {
+      uploadUrl: string
+      publicUrl: string
+      contentType: string
+      key: string
+      storageBucket: StorageBucket
+    }) => {
+      try {
+        return await uploadSinglePutDirect(uploadInfo)
+      } catch (error) {
+        if (!shouldUseUploadProxyFallback(error)) throw error
+        onProgress(0)
+        return await uploadSinglePutViaProxy(uploadInfo)
+      }
+    }
 
     const uploadInfo = await requestUploadInfo(false)
     if (uploadInfo.multipart) return await uploadMultipartFile(file, uploadInfo, onProgress, bucket)
@@ -776,7 +879,7 @@ export default function UploadVideoPage() {
     try {
       return await uploadSinglePut(uploadInfo)
     } catch (error) {
-      const statusCode = extractStatusCode(error instanceof Error ? error.message : "")
+      const statusCode = extractUploadStatusCode(error instanceof Error ? error.message : "")
       const shouldRetryMultipart =
         type === "video" &&
         (statusCode === 0 || statusCode === 413 || statusCode === 502 || statusCode === 503)

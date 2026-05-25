@@ -19,6 +19,11 @@ import { AV_GENRES } from "@/lib/av-genres"
 import { STANDARD_TAGS } from "@/lib/standard-tags"
 import { TAG_LIMIT } from "@/lib/tag-constraints"
 import { mergeTagsWithLimit } from "@/lib/tags"
+import {
+  buildUploadProxyUrl,
+  buildUploadXhrErrorMessage,
+  shouldUseUploadProxyFallback,
+} from "@/lib/upload-client"
 
 interface Category {
   id: string
@@ -261,28 +266,68 @@ export default function EditVideoPage({ params }: PageProps) {
       throw new Error(uploadInfo.error || "Failed to prepare upload")
     }
 
-    return await new Promise<{ url: string; size: number; type: string }>((resolve, reject) => {
-      const xhr = new XMLHttpRequest()
-      xhr.open("PUT", uploadInfo.uploadUrl)
-      xhr.setRequestHeader("Content-Type", uploadInfo.contentType)
+    const uploadDirect = () =>
+      new Promise<{ url: string; size: number; type: string }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open("PUT", uploadInfo.uploadUrl)
+        xhr.setRequestHeader("Content-Type", uploadInfo.contentType)
 
-      xhr.upload.onprogress = (event) => {
-        if (!event.lengthComputable) return
-        const progress = Math.round((event.loaded / event.total) * 100)
-        onProgress(progress)
-      }
-
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve({ url: uploadInfo.publicUrl, size: file.size, type: uploadInfo.contentType })
-        } else {
-          reject(new Error("Upload failed"))
+        xhr.upload.onprogress = (event) => {
+          if (!event.lengthComputable) return
+          const progress = Math.round((event.loaded / event.total) * 100)
+          onProgress(progress)
         }
-      }
 
-      xhr.onerror = () => reject(new Error("Upload failed"))
-      xhr.send(file)
-    })
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve({ url: uploadInfo.publicUrl, size: file.size, type: uploadInfo.contentType })
+          } else {
+            reject(new Error(buildUploadXhrErrorMessage(xhr, "อัปโหลดรูปปกไม่สำเร็จ")))
+          }
+        }
+
+        xhr.onerror = () => reject(new Error(buildUploadXhrErrorMessage(xhr, "อัปโหลดรูปปกไม่สำเร็จ")))
+        xhr.send(file)
+      })
+
+    const uploadViaProxy = () =>
+      new Promise<{ url: string; size: number; type: string }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open(
+          "PUT",
+          buildUploadProxyUrl("/api/upload-proxy", {
+            key: uploadInfo.key,
+            contentType: uploadInfo.contentType,
+            storageBucket: uploadInfo.storageBucket,
+          }),
+        )
+        xhr.setRequestHeader("Content-Type", uploadInfo.contentType)
+
+        xhr.upload.onprogress = (event) => {
+          if (!event.lengthComputable) return
+          const progress = Math.round((event.loaded / event.total) * 100)
+          onProgress(progress)
+        }
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve({ url: uploadInfo.publicUrl, size: file.size, type: uploadInfo.contentType })
+          } else {
+            reject(new Error(buildUploadXhrErrorMessage(xhr, "อัปโหลดรูปปกไม่สำเร็จ")))
+          }
+        }
+
+        xhr.onerror = () => reject(new Error(buildUploadXhrErrorMessage(xhr, "อัปโหลดรูปปกไม่สำเร็จ")))
+        xhr.send(file)
+      })
+
+    try {
+      return await uploadDirect()
+    } catch (error) {
+      if (!shouldUseUploadProxyFallback(error)) throw error
+      onProgress(0)
+      return await uploadViaProxy()
+    }
   }
 
   const addTags = (value: string) => {

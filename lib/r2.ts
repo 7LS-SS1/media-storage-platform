@@ -1,4 +1,5 @@
 import { createReadStream } from "fs"
+import type { Readable } from "stream"
 import {
   S3Client,
   PutObjectCommand,
@@ -21,6 +22,8 @@ type R2Config = {
   publicDomain?: string
   keyPrefix: string
 }
+
+type R2UploadBody = Buffer | Uint8Array | string | Readable
 
 let cachedClient: S3Client | null = null
 const cachedConfigs: Partial<Record<StorageBucket, R2Config>> = {}
@@ -204,11 +207,20 @@ export async function uploadToR2(
   contentType: string,
   bucket: StorageBucket = DEFAULT_STORAGE_BUCKET,
 ): Promise<string> {
+  return await uploadBodyToR2(file, key, contentType, bucket)
+}
+
+export async function uploadBodyToR2(
+  body: R2UploadBody,
+  key: string,
+  contentType: string,
+  bucket: StorageBucket = DEFAULT_STORAGE_BUCKET,
+): Promise<string> {
   const config = getR2Config(bucket)
   const command = new PutObjectCommand({
     Bucket: config.bucketName,
     Key: key,
-    Body: file,
+    Body: body,
     ContentType: contentType,
   })
 
@@ -223,18 +235,7 @@ export async function uploadFileToR2(
   contentType: string,
   bucket: StorageBucket = DEFAULT_STORAGE_BUCKET,
 ): Promise<string> {
-  const config = getR2Config(bucket)
-  const stream = createReadStream(filePath)
-  const command = new PutObjectCommand({
-    Bucket: config.bucketName,
-    Key: key,
-    Body: stream,
-    ContentType: contentType,
-  })
-
-  await getR2Client(config).send(command)
-
-  return getPublicR2Url(key, bucket)
+  return await uploadBodyToR2(createReadStream(filePath), key, contentType, bucket)
 }
 
 export function getPublicR2Url(key: string, bucket: StorageBucket = DEFAULT_STORAGE_BUCKET): string {
@@ -441,6 +442,20 @@ export type MultipartUploadPart = {
   PartNumber: number
 }
 
+export function isUploadKeyAllowed(
+  key: string,
+  bucket: StorageBucket = DEFAULT_STORAGE_BUCKET,
+): boolean {
+  const normalizedKey = key.trim().replace(/^\/+/, "")
+  if (!normalizedKey) return false
+
+  const keyPrefix = getR2Config(bucket).keyPrefix.replace(/^\/+/, "").replace(/\/+$/, "")
+  return (
+    normalizedKey.startsWith(`${keyPrefix}/videos/`) ||
+    normalizedKey.startsWith(`${keyPrefix}/thumbnails/`)
+  )
+}
+
 export async function createMultipartUpload(
   key: string,
   contentType: string,
@@ -474,6 +489,28 @@ export async function getSignedUploadPartUrl(
     PartNumber: partNumber,
   })
   return await getSignedUrl(getR2Client(config), command, { expiresIn })
+}
+
+export async function uploadMultipartPartToR2(
+  body: R2UploadBody,
+  key: string,
+  uploadId: string,
+  partNumber: number,
+  bucket: StorageBucket = DEFAULT_STORAGE_BUCKET,
+): Promise<string> {
+  const config = getR2Config(bucket)
+  const command = new UploadPartCommand({
+    Bucket: config.bucketName,
+    Key: key,
+    UploadId: uploadId,
+    PartNumber: partNumber,
+    Body: body,
+  })
+  const response = await getR2Client(config).send(command)
+  if (!response.ETag) {
+    throw new Error("Missing ETag from upload response")
+  }
+  return response.ETag.replace(/"/g, "")
 }
 
 export async function completeMultipartUpload(
