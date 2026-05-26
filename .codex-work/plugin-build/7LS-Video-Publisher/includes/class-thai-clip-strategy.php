@@ -44,7 +44,7 @@ class Thai_Clip_Strategy implements Mode_Strategy {
 
         return [
             'external_id'   => sanitize_text_field($raw['id'] ?? $raw['video_id'] ?? $raw['videoId'] ?? ''),
-            'title'          => sanitize_text_field($raw['title'] ?? $raw['name'] ?? 'Untitled Video'),
+            'title'          => sanitize_text_field($raw['title'] ?? $raw['name'] ?? 'วิดีโอไม่มีชื่อ'),
             'description'    => wp_kses_post($raw['description'] ?? $raw['desc'] ?? ''),
             'video_url'      => esc_url_raw($video_url),
             'playback_url'   => esc_url_raw($playback_url),
@@ -70,12 +70,12 @@ class Thai_Clip_Strategy implements Mode_Strategy {
 
         $id = $raw['id'] ?? $raw['video_id'] ?? $raw['videoId'] ?? null;
         if (empty($id)) {
-            return new \WP_Error('missing_id', 'Video ID is required');
+            return new \WP_Error('missing_id', 'จำเป็นต้องมีรหัสวิดีโอ');
         }
 
         $title = $raw['title'] ?? $raw['name'] ?? null;
         if (empty($title)) {
-            return new \WP_Error('missing_title', 'Video title is required');
+            return new \WP_Error('missing_title', 'จำเป็นต้องมีชื่อวิดีโอ');
         }
 
         return true;

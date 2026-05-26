@@ -11,7 +11,10 @@ class Sync_Lock {
 
     private const TRANSIENT_KEY = 'sevenls_vp_sync_lock';
     private const TTL = 600; // 10 minutes max
+    private const ACTIVE_JOB_TRANSIENT_KEY = 'sevenls_vp_sync_active_job';
+    private const ACTIVE_JOB_TTL           = 3600;
     private const PROGRESS_TRANSIENT_PREFIX = 'sevenls_vp_sync_progress_';
+    private const JOB_STATE_TRANSIENT_PREFIX = 'sevenls_vp_sync_job_state_';
     private const PROGRESS_ACTIVE_TTL       = 1800;
     private const PROGRESS_FINAL_TTL        = 3600;
 
@@ -78,6 +81,92 @@ class Sync_Lock {
         $data = get_transient(self::TRANSIENT_KEY);
 
         return is_array($data) ? $data : null;
+    }
+
+    /**
+     * Claim the cross-request active sync job marker.
+     */
+    public static function claim_active_job(string $job_id, string $operation = ''): bool {
+        $normalized_job_id = sanitize_key($job_id);
+        if ($normalized_job_id === '') {
+            return false;
+        }
+
+        $existing = self::get_active_job();
+        if ($existing !== null && ($existing['job_id'] ?? '') !== $normalized_job_id) {
+            return false;
+        }
+
+        set_transient(self::ACTIVE_JOB_TRANSIENT_KEY, [
+            'job_id'    => $normalized_job_id,
+            'operation' => sanitize_key($operation),
+            'updated_at'=> time(),
+        ], self::ACTIVE_JOB_TTL);
+
+        return true;
+    }
+
+    /**
+     * Refresh the active job marker while a batched sync is still running.
+     */
+    public static function refresh_active_job(string $job_id, string $operation = ''): void {
+        $normalized_job_id = sanitize_key($job_id);
+        if ($normalized_job_id === '') {
+            return;
+        }
+
+        $existing = self::get_active_job();
+        if ($existing !== null && ($existing['job_id'] ?? '') !== $normalized_job_id) {
+            return;
+        }
+
+        set_transient(self::ACTIVE_JOB_TRANSIENT_KEY, [
+            'job_id'    => $normalized_job_id,
+            'operation' => sanitize_key($operation),
+            'updated_at'=> time(),
+        ], self::ACTIVE_JOB_TTL);
+    }
+
+    /**
+     * Get the current active sync job marker.
+     *
+     * @return array{job_id: string, operation: string, updated_at: int}|null
+     */
+    public static function get_active_job(): ?array {
+        $active_job = get_transient(self::ACTIVE_JOB_TRANSIENT_KEY);
+        if (!is_array($active_job)) {
+            return null;
+        }
+
+        $job_id = sanitize_key((string) ($active_job['job_id'] ?? ''));
+        if ($job_id === '') {
+            return null;
+        }
+
+        return [
+            'job_id'     => $job_id,
+            'operation'  => sanitize_key((string) ($active_job['operation'] ?? '')),
+            'updated_at' => max(0, (int) ($active_job['updated_at'] ?? 0)),
+        ];
+    }
+
+    /**
+     * Release the active sync job marker.
+     */
+    public static function release_active_job(?string $job_id = null): void {
+        if ($job_id === null || $job_id === '') {
+            delete_transient(self::ACTIVE_JOB_TRANSIENT_KEY);
+            return;
+        }
+
+        $existing = self::get_active_job();
+        if ($existing === null) {
+            return;
+        }
+
+        if (($existing['job_id'] ?? '') === sanitize_key($job_id)) {
+            delete_transient(self::ACTIVE_JOB_TRANSIENT_KEY);
+        }
     }
 
     /**
@@ -170,6 +259,49 @@ class Sync_Lock {
     }
 
     /**
+     * Persist internal batched job state across requests.
+     *
+     * @param array<string, mixed> $state
+     * @return array<string, mixed>
+     */
+    public static function set_job_state(string $job_id, array $state, int $ttl = self::PROGRESS_ACTIVE_TTL): array {
+        $normalized_job_id = sanitize_key($job_id);
+        $state['job_id'] = $normalized_job_id;
+        $state['updated_at'] = time();
+        set_transient(self::job_state_key($normalized_job_id), $state, $ttl);
+
+        return $state;
+    }
+
+    /**
+     * Update the internal batched job state.
+     *
+     * @param array<string, mixed> $state
+     * @return array<string, mixed>
+     */
+    public static function update_job_state(string $job_id, array $state, int $ttl = self::PROGRESS_ACTIVE_TTL): array {
+        $current = self::get_job_state($job_id) ?? [];
+
+        return self::set_job_state($job_id, array_merge($current, $state), $ttl);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public static function get_job_state(string $job_id): ?array {
+        $state = get_transient(self::job_state_key($job_id));
+
+        return is_array($state) ? $state : null;
+    }
+
+    /**
+     * Clear the internal batched job state.
+     */
+    public static function clear_job_state(string $job_id): void {
+        delete_transient(self::job_state_key($job_id));
+    }
+
+    /**
      * @param array<string, mixed> $record
      * @return array<string, mixed>
      */
@@ -252,6 +384,10 @@ class Sync_Lock {
 
     private static function progress_key(string $job_id): string {
         return self::PROGRESS_TRANSIENT_PREFIX . sanitize_key($job_id);
+    }
+
+    private static function job_state_key(string $job_id): string {
+        return self::JOB_STATE_TRANSIENT_PREFIX . sanitize_key($job_id);
     }
 
     /**

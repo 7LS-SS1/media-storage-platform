@@ -37,7 +37,7 @@ class API_Client {
      */
     public function fetch_videos(array $args = []): array|\WP_Error {
         if (empty($this->base_url) || empty($this->api_key)) {
-            return new \WP_Error('api_not_configured', __('API credentials not configured', '7ls-video-publisher'));
+            return new \WP_Error('api_not_configured', __('ยังไม่ได้ตั้งค่า API credentials', '7ls-video-publisher'));
         }
 
         $defaults = [
@@ -86,7 +86,7 @@ class API_Client {
      */
     public function fetch_video(string $video_id): array|\WP_Error {
         if (empty($this->base_url) || empty($this->api_key)) {
-            return new \WP_Error('api_not_configured', __('API credentials not configured', '7ls-video-publisher'));
+            return new \WP_Error('api_not_configured', __('ยังไม่ได้ตั้งค่า API credentials', '7ls-video-publisher'));
         }
 
         $url = $this->build_single_url($video_id);
@@ -122,7 +122,7 @@ class API_Client {
      */
     public function trigger_plugin_sync(array $payload = []): array|\WP_Error {
         if (empty($this->base_url) || empty($this->api_key)) {
-            return new \WP_Error('api_not_configured', __('API credentials not configured', '7ls-video-publisher'));
+            return new \WP_Error('api_not_configured', __('ยังไม่ได้ตั้งค่า API credentials', '7ls-video-publisher'));
         }
 
         $url  = $this->build_plugin_sync_url();
@@ -278,11 +278,11 @@ class API_Client {
             return new \WP_Error('unauthorized', $msg);
         }
         if ($status_code === 404) {
-            return new \WP_Error('not_found', __('API endpoint not found (HTTP 404)', '7ls-video-publisher'));
+            return new \WP_Error('not_found', __('ไม่พบ API endpoint (HTTP 404)', '7ls-video-publisher'));
         }
         if ($status_code === 429) {
             Logger::log('Rate limit exceeded (HTTP 429)', 'warning');
-            return new \WP_Error('rate_limited', __('Rate limit exceeded. Please try again later.', '7ls-video-publisher'));
+            return new \WP_Error('rate_limited', __('เกินขีดจำกัดการเรียกใช้งาน กรุณาลองใหม่ภายหลัง', '7ls-video-publisher'));
         }
         if ($status_code >= 500) {
             $error_body = $this->extract_error_message($body);
@@ -318,7 +318,7 @@ class API_Client {
                 content_type: $this->normalize_header_value(wp_remote_retrieve_header($response, 'content-type')),
                 response_type: $type
             );
-            return new \WP_Error('json_error', __('Failed to parse API response', '7ls-video-publisher'));
+            return new \WP_Error('json_error', __('ไม่สามารถแปลงผลลัพธ์จาก API ได้', '7ls-video-publisher'));
         }
 
         return $type === 'single'
@@ -617,7 +617,7 @@ class API_Client {
         $videos = $this->extract_videos($data);
 
         if ($videos === null) {
-            return new \WP_Error('api_response_invalid', __('API response does not include video data', '7ls-video-publisher'));
+            return new \WP_Error('api_response_invalid', __('ผลลัพธ์จาก API ไม่มีข้อมูลวิดีโอ', '7ls-video-publisher'));
         }
 
         return [

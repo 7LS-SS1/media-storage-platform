@@ -39,17 +39,17 @@
 
                 copyText(text)
                     .then(function () {
-                        button.textContent = 'Copied!';
+                        button.textContent = (window.sevenlsVpAdmin && window.sevenlsVpAdmin.labels.copy_success) || 'คัดลอกแล้ว';
                         button.classList.add('is-copied');
                         window.setTimeout(function () {
-                            button.textContent = button.dataset.defaultLabel || 'Copy';
+                            button.textContent = button.dataset.defaultLabel || ((window.sevenlsVpAdmin && window.sevenlsVpAdmin.labels.copy_default) || 'คัดลอก');
                             button.classList.remove('is-copied');
                         }, 2000);
                     })
                     .catch(function () {
-                        button.textContent = 'Copy failed';
+                        button.textContent = (window.sevenlsVpAdmin && window.sevenlsVpAdmin.labels.copy_failed) || 'คัดลอกไม่สำเร็จ';
                         window.setTimeout(function () {
-                            button.textContent = button.dataset.defaultLabel || 'Copy';
+                            button.textContent = button.dataset.defaultLabel || ((window.sevenlsVpAdmin && window.sevenlsVpAdmin.labels.copy_default) || 'คัดลอก');
                         }, 2000);
                     });
             });
@@ -142,7 +142,7 @@
                     return {
                         success: false,
                         data: {
-                            message: 'Invalid AJAX response.'
+                            message: config.labels.invalid_response || 'รูปแบบคำตอบจาก AJAX ไม่ถูกต้อง'
                         }
                     };
                 });
@@ -328,11 +328,17 @@
                 state.pollTimer = null;
             }
 
+            if (state.batchTimer) {
+                window.clearTimeout(state.batchTimer);
+                state.batchTimer = null;
+            }
+
             setCardLoading(state.form, false);
             setSyncButtonsDisabled(false);
             setCloseEnabled(true, buttonLabel, shouldReload);
             modal.root.dataset.finalState = progress && progress.status ? progress.status : '';
             state.finalized = true;
+            state.batchRequestInFlight = false;
 
             if (activeSync && activeSync.jobId === state.jobId) {
                 activeSync = null;
@@ -479,6 +485,88 @@
             });
         }
 
+        function clearBatchTimer(state) {
+            if (state.batchTimer) {
+                window.clearTimeout(state.batchTimer);
+                state.batchTimer = null;
+            }
+        }
+
+        function scheduleNextBatch(state, delay) {
+            clearBatchTimer(state);
+
+            if (!state || state.finalized || !state.isBatch) {
+                return;
+            }
+
+            state.batchTimer = window.setTimeout(function () {
+                state.batchTimer = null;
+                processNextBatch(state);
+            }, typeof delay === 'number' ? delay : 25);
+        }
+
+        function processNextBatch(state) {
+            if (!state || state.finalized || !state.isBatch || state.batchRequestInFlight) {
+                return;
+            }
+
+            if (!activeSync || activeSync.jobId !== state.jobId) {
+                return;
+            }
+
+            state.batchRequestInFlight = true;
+
+            request('sevenls_vp_process_sync_batch', {
+                job_id: state.jobId
+            }).then(function (result) {
+                state.batchRequestInFlight = false;
+
+                if (!state || state.finalized) {
+                    return;
+                }
+
+                if (!result || !result.success) {
+                        failSync(
+                        state,
+                        result && result.data && result.data.message ? result.data.message : (config.labels.batch_failed || 'การประมวลผลแบตช์ล้มเหลว')
+                    );
+                    return;
+                }
+
+                if (result.data && result.data.progress) {
+                    updateModal(result.data.progress, state.label);
+                    recordProgressHeartbeat(state, result.data.progress);
+
+                    if (result.data.progress.status === 'completed') {
+                        finalizeSync(state, result.data.progress, { shouldReload: true });
+                        return;
+                    }
+
+                    if (result.data.progress.status === 'error') {
+                        finalizeSync(state, result.data.progress, { shouldReload: false });
+                        return;
+                    }
+                }
+
+                if (result.data && result.data.continue) {
+                    scheduleNextBatch(state, 25);
+                    return;
+                }
+
+                if (result.data && result.data.progress) {
+                    finalizeSync(state, result.data.progress, {
+                        shouldReload: result.data.progress.status === 'completed'
+                    });
+                    return;
+                }
+
+                failSync(state, config.labels.unexpected_batch || 'แบตช์ซิงก์ตอบกลับไม่ตรงตามที่คาดไว้');
+            }).catch(function () {
+                state.batchRequestInFlight = false;
+                failSync(state, config.labels.network_batch || 'เครือข่ายขัดข้องระหว่างประมวลผลแบตช์');
+            });
+        }
+
         forms.forEach(function (form) {
             form.addEventListener('submit', function (event) {
                 var confirmMessage;
@@ -505,6 +593,9 @@
                     label: form.getAttribute('data-sync-label') || 'Sync',
                     syncAction: form.getAttribute('data-sync-action') || '',
                     pollTimer: null,
+                    batchTimer: null,
+                    batchRequestInFlight: false,
+                    isBatch: false,
                     lastProgressAt: Date.now(),
                     lastProgressSignature: '',
                     finalized: false
@@ -530,7 +621,7 @@
                     job_id: state.jobId
                 }).then(function (result) {
                     if (!result || !result.success) {
-                        failSync(state, result && result.data && result.data.message ? result.data.message : 'Sync failed.');
+                        failSync(state, result && result.data && result.data.message ? result.data.message : (config.labels.sync_failed || 'การซิงก์ล้มเหลว'));
                         return;
                     }
 
@@ -542,10 +633,16 @@
                             finalizeSync(state, result.data.progress, { shouldReload: true });
                         } else if (result.data.progress.status === 'error') {
                             finalizeSync(state, result.data.progress, { shouldReload: false });
+                        } else if (result.data.batched) {
+                            state.isBatch = true;
+                            scheduleNextBatch(state, 25);
                         }
+                    } else if (result.data && result.data.batched) {
+                        state.isBatch = true;
+                        scheduleNextBatch(state, 25);
                     }
                 }).catch(function () {
-                    failSync(state, 'Network error while starting sync.');
+                    failSync(state, config.labels.network_start || 'เครือข่ายขัดข้องระหว่างเริ่มการซิงก์');
                 });
             });
         });

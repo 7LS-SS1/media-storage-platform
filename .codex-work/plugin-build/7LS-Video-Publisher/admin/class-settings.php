@@ -17,14 +17,14 @@ class SevenLS_VP_Settings {
         // API Settings Section
         add_settings_section(
             'sevenls_vp_api_section',
-            __('API Configuration', '7ls-video-publisher'),
+            __('การตั้งค่า API', '7ls-video-publisher'),
             [__CLASS__, 'render_api_section'],
             'sevenls-video-publisher'
         );
         
         add_settings_field(
             'content_mode',
-            __('Content Mode', '7ls-video-publisher'),
+            __('ประเภทเนื้อหา', '7ls-video-publisher'),
             [__CLASS__, 'render_mode_field'],
             'sevenls-video-publisher',
             'sevenls_vp_api_section'
@@ -32,7 +32,7 @@ class SevenLS_VP_Settings {
 
         add_settings_field(
             'enable_retrotube_theme',
-            __('RetroTube Compatibility', '7ls-video-publisher'),
+            __('รองรับธีม RetroTube', '7ls-video-publisher'),
             [__CLASS__, 'render_retrotube_theme_field'],
             'sevenls-video-publisher',
             'sevenls_vp_api_section'
@@ -58,7 +58,7 @@ class SevenLS_VP_Settings {
         
         add_settings_field(
             'project_id',
-            __('Project ID (Optional)', '7ls-video-publisher'),
+            __('Project ID (ไม่บังคับ)', '7ls-video-publisher'),
             [__CLASS__, 'render_text_field'],
             'sevenls-video-publisher',
             'sevenls_vp_api_section',
@@ -67,7 +67,7 @@ class SevenLS_VP_Settings {
 
         add_settings_field(
             'allow_self_signed_ssl',
-            __('Allow Self-Signed SSL', '7ls-video-publisher'),
+            __('อนุญาต SSL แบบ Self-Signed', '7ls-video-publisher'),
             [__CLASS__, 'render_insecure_ssl_field'],
             'sevenls-video-publisher',
             'sevenls_vp_api_section'
@@ -76,14 +76,14 @@ class SevenLS_VP_Settings {
         // Sync Settings Section
         add_settings_section(
             'sevenls_vp_sync_section',
-            __('Sync Configuration', '7ls-video-publisher'),
+            __('การตั้งค่าการซิงก์', '7ls-video-publisher'),
             null,
             'sevenls-video-publisher'
         );
         
         add_settings_field(
             'sync_interval',
-            __('Sync Interval', '7ls-video-publisher'),
+            __('ช่วงเวลาซิงก์อัตโนมัติ', '7ls-video-publisher'),
             [__CLASS__, 'render_sync_interval_field'],
             'sevenls-video-publisher',
             'sevenls_vp_sync_section'
@@ -91,7 +91,7 @@ class SevenLS_VP_Settings {
         
         add_settings_field(
             'post_status',
-            __('Post Status for Imported Videos', '7ls-video-publisher'),
+            __('สถานะโพสต์ของวิดีโอที่นำเข้า', '7ls-video-publisher'),
             [__CLASS__, 'render_post_status_field'],
             'sevenls-video-publisher',
             'sevenls_vp_sync_section'
@@ -99,8 +99,32 @@ class SevenLS_VP_Settings {
         
         add_settings_field(
             'post_author',
-            __('Post Author', '7ls-video-publisher'),
+            __('ผู้เขียนโพสต์', '7ls-video-publisher'),
             [__CLASS__, 'render_author_field'],
+            'sevenls-video-publisher',
+            'sevenls_vp_sync_section'
+        );
+
+        add_settings_field(
+            'sync_batch_size',
+            __('จำนวนวิดีโอต่อแบตช์', '7ls-video-publisher'),
+            [__CLASS__, 'render_batch_size_field'],
+            'sevenls-video-publisher',
+            'sevenls_vp_sync_section'
+        );
+
+        add_settings_field(
+            'download_featured_images',
+            __('ดาวน์โหลดรูปภาพเด่น', '7ls-video-publisher'),
+            [__CLASS__, 'render_download_featured_images_field'],
+            'sevenls-video-publisher',
+            'sevenls_vp_sync_section'
+        );
+
+        add_settings_field(
+            'save_raw_payload',
+            __('บันทึก Raw Payload', '7ls-video-publisher'),
+            [__CLASS__, 'render_save_raw_payload_field'],
             'sevenls-video-publisher',
             'sevenls_vp_sync_section'
         );
@@ -108,14 +132,14 @@ class SevenLS_VP_Settings {
         // Logging Section
         add_settings_section(
             'sevenls_vp_logging_section',
-            __('Logging', '7ls-video-publisher'),
+            __('บันทึกเหตุการณ์', '7ls-video-publisher'),
             null,
             'sevenls-video-publisher'
         );
         
         add_settings_field(
             'logging_enabled',
-            __('Enable Logging', '7ls-video-publisher'),
+            __('เปิดการบันทึกเหตุการณ์', '7ls-video-publisher'),
             [__CLASS__, 'render_checkbox_field'],
             'sevenls-video-publisher',
             'sevenls_vp_logging_section',
@@ -124,7 +148,7 @@ class SevenLS_VP_Settings {
         
         add_settings_field(
             'log_retention_days',
-            __('Log Retention (Days)', '7ls-video-publisher'),
+            __('จำนวนวันเก็บ log', '7ls-video-publisher'),
             [__CLASS__, 'render_number_field'],
             'sevenls-video-publisher',
             'sevenls_vp_logging_section',
@@ -152,6 +176,9 @@ class SevenLS_VP_Settings {
             ? $input['post_status'] 
             : 'publish';
         $sanitized['post_author'] = absint($input['post_author'] ?? get_current_user_id());
+        $sanitized['sync_batch_size'] = max(10, min(250, absint($input['sync_batch_size'] ?? 100)));
+        $sanitized['download_featured_images'] = !empty($input['download_featured_images']);
+        $sanitized['save_raw_payload'] = !empty($input['save_raw_payload']);
         $sanitized['logging_enabled'] = !empty($input['logging_enabled']);
         $sanitized['log_retention_days'] = absint($input['log_retention_days'] ?? 30);
         
@@ -178,7 +205,7 @@ class SevenLS_VP_Settings {
      * Render API section description
      */
     public static function render_api_section(): void {
-        echo '<p>' . esc_html__('Configure your external media storage API connection.', '7ls-video-publisher') . '</p>';
+        echo '<p>' . esc_html__('ตั้งค่าการเชื่อมต่อกับ API ภายนอกของระบบจัดเก็บมีเดีย', '7ls-video-publisher') . '</p>';
     }
     
     /**
@@ -260,7 +287,7 @@ class SevenLS_VP_Settings {
         }
         echo '</select>';
         echo '<p class="description">';
-        esc_html_e('Select the content type to sync from the API. Changing mode does not delete existing data.', '7ls-video-publisher');
+        esc_html_e('เลือกประเภทเนื้อหาที่ต้องการซิงก์จาก API การเปลี่ยนโหมดจะไม่ลบข้อมูลเดิมที่นำเข้าไว้แล้ว', '7ls-video-publisher');
         echo '</p>';
     }
 
@@ -274,11 +301,11 @@ class SevenLS_VP_Settings {
         printf(
             '<label><input type="checkbox" name="sevenls_vp_settings[enable_retrotube_theme]" value="1" %1$s /> %2$s</label>',
             checked($enabled, true, false),
-            esc_html__('Enable RetroTube-specific post/meta/taxonomy mapping', '7ls-video-publisher')
+            esc_html__('เปิดใช้การแมป post/meta/taxonomy สำหรับ RetroTube โดยเฉพาะ', '7ls-video-publisher')
         );
 
         echo '<p class="description">';
-        esc_html_e('Opt-in only for sites using the RetroTube theme. Imported videos will sync into standard WordPress posts with RetroTube fields. Leave disabled for the main 7LS theme flow. Changing this setting does not migrate existing imported posts.', '7ls-video-publisher');
+        esc_html_e('เปิดใช้เฉพาะเว็บไซต์ที่ใช้ธีม RetroTube เท่านั้น วิดีโอที่นำเข้าจะถูกซิงก์เป็นโพสต์มาตรฐานของ WordPress พร้อมฟิลด์ที่ RetroTube ใช้งาน หากเป็นธีม 7LS ปกติให้ปิดไว้ การเปลี่ยนค่านี้จะไม่ย้ายโพสต์ที่นำเข้าไว้ก่อนหน้า', '7ls-video-publisher');
         echo '</p>';
     }
 
@@ -292,11 +319,11 @@ class SevenLS_VP_Settings {
         printf(
             '<label><input type="checkbox" name="sevenls_vp_settings[allow_self_signed_ssl]" value="1" %1$s /> %2$s</label>',
             checked($enabled, true, false),
-            esc_html__('Disable SSL certificate verification for API requests', '7ls-video-publisher')
+            esc_html__('ปิดการตรวจสอบใบรับรอง SSL สำหรับคำขอ API', '7ls-video-publisher')
         );
 
         echo '<p class="description">';
-        esc_html_e('Use only in local or staging environments that rely on self-signed certificates. Leave disabled in production.', '7ls-video-publisher');
+        esc_html_e('ควรใช้เฉพาะในเครื่อง local หรือ staging ที่ใช้ใบรับรองแบบ self-signed เท่านั้น บน production ควรปิดไว้', '7ls-video-publisher');
         echo '</p>';
     }
 
@@ -308,11 +335,11 @@ class SevenLS_VP_Settings {
         $value = $settings['sync_interval'] ?? 'hourly';
         
         $intervals = [
-            'five_minutes' => __('Every 5 Minutes', '7ls-video-publisher'),
-            'fifteen_minutes' => __('Every 15 Minutes', '7ls-video-publisher'),
-            'hourly' => __('Hourly', '7ls-video-publisher'),
-            'twicedaily' => __('Twice Daily', '7ls-video-publisher'),
-            'daily' => __('Daily', '7ls-video-publisher'),
+            'five_minutes' => __('ทุก 5 นาที', '7ls-video-publisher'),
+            'fifteen_minutes' => __('ทุก 15 นาที', '7ls-video-publisher'),
+            'hourly' => __('ทุกชั่วโมง', '7ls-video-publisher'),
+            'twicedaily' => __('วันละ 2 ครั้ง', '7ls-video-publisher'),
+            'daily' => __('ทุกวัน', '7ls-video-publisher'),
         ];
         
         echo '<select name="sevenls_vp_settings[sync_interval]">';
@@ -335,9 +362,9 @@ class SevenLS_VP_Settings {
         $value = $settings['post_status'] ?? 'publish';
         
         $statuses = [
-            'draft' => __('Draft', '7ls-video-publisher'),
-            'publish' => __('Published', '7ls-video-publisher'),
-            'pending' => __('Pending Review', '7ls-video-publisher'),
+            'draft' => __('ฉบับร่าง', '7ls-video-publisher'),
+            'publish' => __('เผยแพร่', '7ls-video-publisher'),
+            'pending' => __('รอตรวจสอบ', '7ls-video-publisher'),
         ];
         
         echo '<select name="sevenls_vp_settings[post_status]">';
@@ -362,9 +389,53 @@ class SevenLS_VP_Settings {
         wp_dropdown_users([
             'name' => 'sevenls_vp_settings[post_author]',
             'selected' => $value,
-            'show_option_none' => __('Current User', '7ls-video-publisher'),
+            'show_option_none' => __('ผู้ใช้ปัจจุบัน', '7ls-video-publisher'),
             'option_none_value' => 0
         ]);
+    }
+
+    public static function render_batch_size_field(): void {
+        $settings = get_option('sevenls_vp_settings', []);
+        $value = isset($settings['sync_batch_size']) ? (int) $settings['sync_batch_size'] : 100;
+
+        printf(
+            '<input type="number" name="sevenls_vp_settings[sync_batch_size]" value="%1$d" class="small-text" min="10" max="250" step="10" />',
+            max(10, min(250, $value))
+        );
+
+        echo '<p class="description">';
+        esc_html_e('กำหนดจำนวนวิดีโอที่ประมวลผลต่อหนึ่งแบตช์ ยิ่งมากยิ่งเร็ว แต่จะใช้หน่วยความจำของเซิร์ฟเวอร์ต่อ request มากขึ้น', '7ls-video-publisher');
+        echo '</p>';
+    }
+
+    public static function render_download_featured_images_field(): void {
+        $settings = get_option('sevenls_vp_settings', []);
+        $enabled = !empty($settings['download_featured_images']);
+
+        printf(
+            '<label><input type="checkbox" name="sevenls_vp_settings[download_featured_images]" value="1" %1$s /> %2$s</label>',
+            checked($enabled, true, false),
+            esc_html__('ดาวน์โหลดรูปภาพปกเข้า Media Library และตั้งเป็นรูปภาพเด่น', '7ls-video-publisher')
+        );
+
+        echo '<p class="description">';
+        esc_html_e('แนะนำให้ปิดไว้หากต้องการซิงก์เร็วที่สุด ปลั๊กอินยังสามารถแสดงรูปภาพจาก URL ต้นทางได้ แม้จะไม่ได้ดาวน์โหลดมาเป็นรูปภาพเด่น', '7ls-video-publisher');
+        echo '</p>';
+    }
+
+    public static function render_save_raw_payload_field(): void {
+        $settings = get_option('sevenls_vp_settings', []);
+        $enabled = !empty($settings['save_raw_payload']);
+
+        printf(
+            '<label><input type="checkbox" name="sevenls_vp_settings[save_raw_payload]" value="1" %1$s /> %2$s</label>',
+            checked($enabled, true, false),
+            esc_html__('บันทึกข้อมูลตอบกลับดิบจาก API ไว้ใน post meta เพื่อใช้ debug', '7ls-video-publisher')
+        );
+
+        echo '<p class="description">';
+        esc_html_e('แนะนำให้ปิดไว้เพื่อให้ซิงก์ได้เร็วขึ้นและลดขนาดฐานข้อมูล เปิดเฉพาะเวลาที่ต้องตรวจสอบความแตกต่างของ payload', '7ls-video-publisher');
+        echo '</p>';
     }
 }
 

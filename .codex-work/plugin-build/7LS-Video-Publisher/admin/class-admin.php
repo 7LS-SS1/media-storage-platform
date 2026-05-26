@@ -14,6 +14,7 @@ class SevenLS_VP_Admin {
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
         add_action('admin_init', [$this, 'handle_admin_actions']);
         add_action('wp_ajax_sevenls_vp_start_sync', [$this, 'ajax_start_sync']);
+        add_action('wp_ajax_sevenls_vp_process_sync_batch', [$this, 'ajax_process_sync_batch']);
         add_action('wp_ajax_sevenls_vp_get_sync_progress', [$this, 'ajax_get_sync_progress']);
         add_filter('manage_video_posts_columns', [$this, 'add_custom_columns']);
         add_action('manage_video_posts_custom_column', [$this, 'render_custom_columns'], 10, 2);
@@ -36,8 +37,8 @@ class SevenLS_VP_Admin {
         
         add_submenu_page(
             'sevenls-video-publisher',
-            __('Settings', '7ls-video-publisher'),
-            __('Settings', '7ls-video-publisher'),
+            __('ตั้งค่า', '7ls-video-publisher'),
+            __('ตั้งค่า', '7ls-video-publisher'),
             'manage_options',
             'sevenls-video-publisher',
             [$this, 'render_settings_page']
@@ -45,8 +46,8 @@ class SevenLS_VP_Admin {
         
         add_submenu_page(
             'sevenls-video-publisher',
-            __('Logs', '7ls-video-publisher'),
-            __('Logs', '7ls-video-publisher'),
+            __('บันทึกเหตุการณ์', '7ls-video-publisher'),
+            __('บันทึกเหตุการณ์', '7ls-video-publisher'),
             'manage_options',
             'sevenls-video-publisher-logs',
             [$this, 'render_logs_page']
@@ -82,26 +83,35 @@ class SevenLS_VP_Admin {
             'syncPollInterval' => 1000,
             'syncStaleThreshold' => 180000,
             'labels'           => [
-                'preparing'      => __('Preparing sync...', '7ls-video-publisher'),
-                'queued'         => __('Queued', '7ls-video-publisher'),
-                'running'        => __('Running', '7ls-video-publisher'),
-                'completed'      => __('Completed', '7ls-video-publisher'),
-                'error'          => __('Error', '7ls-video-publisher'),
-                'stalled'        => __('Sync stopped reporting progress. The current request likely timed out while processing.', '7ls-video-publisher'),
-                'close'          => __('Close', '7ls-video-publisher'),
-                'close_refresh'  => __('Close & Refresh', '7ls-video-publisher'),
-                'unknown_total'  => __('Unknown', '7ls-video-publisher'),
-                'unknown_page'   => __('In progress', '7ls-video-publisher'),
-                'success_alert'  => __('Sync completed successfully.', '7ls-video-publisher'),
-                'running_alert'  => __('Sync is in progress.', '7ls-video-publisher'),
-                'waiting_item'   => __('Waiting for the first item...', '7ls-video-publisher'),
-                'no_pending'     => __('No pending items yet.', '7ls-video-publisher'),
-                'no_results'     => __('No completed items yet.', '7ls-video-publisher'),
-                'no_errors'      => __('No errors.', '7ls-video-publisher'),
-                'created'        => __('Created', '7ls-video-publisher'),
-                'updated'        => __('Updated', '7ls-video-publisher'),
-                'completed_item' => __('Completed', '7ls-video-publisher'),
-                'error_item'     => __('Error', '7ls-video-publisher'),
+                'preparing'      => __('กำลังเตรียมการซิงก์...', '7ls-video-publisher'),
+                'queued'         => __('รอคิว', '7ls-video-publisher'),
+                'running'        => __('กำลังทำงาน', '7ls-video-publisher'),
+                'completed'      => __('เสร็จสิ้น', '7ls-video-publisher'),
+                'error'          => __('ผิดพลาด', '7ls-video-publisher'),
+                'stalled'        => __('การซิงก์หยุดส่งความคืบหน้า คำขอปัจจุบันอาจหมดเวลาในการประมวลผล', '7ls-video-publisher'),
+                'close'          => __('ปิด', '7ls-video-publisher'),
+                'close_refresh'  => __('ปิดและรีเฟรช', '7ls-video-publisher'),
+                'unknown_total'  => __('ไม่ทราบ', '7ls-video-publisher'),
+                'unknown_page'   => __('กำลังประมวลผล', '7ls-video-publisher'),
+                'success_alert'  => __('ซิงก์เสร็จเรียบร้อยแล้ว', '7ls-video-publisher'),
+                'running_alert'  => __('กำลังซิงก์ข้อมูลอยู่', '7ls-video-publisher'),
+                'waiting_item'   => __('กำลังรอรายการแรก...', '7ls-video-publisher'),
+                'no_pending'     => __('ยังไม่มีรายการที่รออัปเดต', '7ls-video-publisher'),
+                'no_results'     => __('ยังไม่มีรายการที่อัปเดตแล้ว', '7ls-video-publisher'),
+                'no_errors'      => __('ยังไม่มีข้อผิดพลาด', '7ls-video-publisher'),
+                'created'        => __('สร้างใหม่', '7ls-video-publisher'),
+                'updated'        => __('อัปเดต', '7ls-video-publisher'),
+                'completed_item' => __('เสร็จแล้ว', '7ls-video-publisher'),
+                'error_item'     => __('ผิดพลาด', '7ls-video-publisher'),
+                'copy_success'   => __('คัดลอกแล้ว', '7ls-video-publisher'),
+                'copy_failed'    => __('คัดลอกไม่สำเร็จ', '7ls-video-publisher'),
+                'copy_default'   => __('คัดลอก', '7ls-video-publisher'),
+                'invalid_response' => __('รูปแบบคำตอบจาก AJAX ไม่ถูกต้อง', '7ls-video-publisher'),
+                'sync_failed'    => __('การซิงก์ล้มเหลว', '7ls-video-publisher'),
+                'batch_failed'   => __('การประมวลผลแบตช์ล้มเหลว', '7ls-video-publisher'),
+                'network_batch'  => __('เครือข่ายขัดข้องระหว่างประมวลผลแบตช์', '7ls-video-publisher'),
+                'network_start'  => __('เครือข่ายขัดข้องระหว่างเริ่มการซิงก์', '7ls-video-publisher'),
+                'unexpected_batch' => __('แบตช์ซิงก์ตอบกลับไม่ตรงตามที่คาดไว้', '7ls-video-publisher'),
             ],
         ]);
     }
@@ -128,14 +138,14 @@ class SevenLS_VP_Admin {
         // Clear logs action
         if (isset($_POST['sevenls_vp_clear_logs']) && check_admin_referer('sevenls_vp_clear_logs')) {
             if (!current_user_can('manage_options')) {
-                wp_die(__('Unauthorized', '7ls-video-publisher'));
+                wp_die(__('คุณไม่มีสิทธิ์เข้าถึง', '7ls-video-publisher'));
             }
             
             SevenLS_VP\Logger::clear_logs();
             
             set_transient('sevenls_vp_admin_notice', [
                 'type' => 'success',
-                'message' => __('Logs cleared successfully', '7ls-video-publisher')
+                'message' => __('ล้างบันทึกเหตุการณ์เรียบร้อยแล้ว', '7ls-video-publisher')
             ], 30);
             
             wp_redirect(admin_url('admin.php?page=sevenls-video-publisher-logs'));
@@ -145,7 +155,7 @@ class SevenLS_VP_Admin {
         // Test API connection (mode-aware)
         if (isset($_POST['sevenls_vp_test_connection']) && check_admin_referer('sevenls_vp_test_connection')) {
             if (!current_user_can('manage_options')) {
-                wp_die(__('Unauthorized', '7ls-video-publisher'));
+                wp_die(__('คุณไม่มีสิทธิ์เข้าถึง', '7ls-video-publisher'));
             }
 
             $controller = new SevenLS_VP\Sync_Controller();
@@ -155,14 +165,14 @@ class SevenLS_VP_Admin {
                 set_transient('sevenls_vp_admin_notice', [
                     'type'    => 'success',
                     'message' => sprintf(
-                        __('API connection successful! Mode: %s', '7ls-video-publisher'),
+                        __('เชื่อมต่อ API สำเร็จ โหมดที่ใช้งาน: %s', '7ls-video-publisher'),
                         $result['label']
                     ),
                 ], 30);
             } else {
                 set_transient('sevenls_vp_admin_notice', [
                     'type'    => 'error',
-                    'message' => __('API connection failed: ', '7ls-video-publisher') . $result['error'],
+                    'message' => __('การเชื่อมต่อ API ล้มเหลว: ', '7ls-video-publisher') . $result['error'],
                 ], 30);
             }
 
@@ -179,7 +189,7 @@ class SevenLS_VP_Admin {
 
         if (!current_user_can('manage_options')) {
             wp_send_json_error([
-                'message' => __('Unauthorized', '7ls-video-publisher'),
+                'message' => __('คุณไม่มีสิทธิ์เข้าถึง', '7ls-video-publisher'),
             ], 403);
         }
 
@@ -200,11 +210,36 @@ class SevenLS_VP_Admin {
         SevenLS_VP\Sync_Lock::start_progress($job_id, [
             'label'     => $config['operation_label'],
             'operation' => $sync_action,
-            'message'   => sprintf(__('Preparing %s...', '7ls-video-publisher'), $config['operation_label']),
+            'message'   => sprintf(__('กำลังเตรียม %s...', '7ls-video-publisher'), $config['operation_label']),
             'percent'   => 0,
         ]);
 
         ignore_user_abort(true);
+
+        if ($sync_action === 'full_sync') {
+            $controller = new SevenLS_VP\Sync_Controller();
+            $outcome = $controller->start_full_sync_batch($job_id);
+
+            if (is_wp_error($outcome)) {
+                SevenLS_VP\Sync_Lock::fail_progress($job_id, $outcome->get_error_message());
+
+                wp_send_json_error([
+                    'job_id'   => $job_id,
+                    'message'  => $outcome->get_error_message(),
+                    'progress' => SevenLS_VP\Sync_Lock::get_progress($job_id),
+                ], 500);
+            }
+
+            wp_send_json_success([
+                'job_id'          => $job_id,
+                'message'         => $outcome['message'] ?? sprintf(__('กำลังเตรียม %s...', '7ls-video-publisher'), $config['operation_label']),
+                'operation_label' => $config['operation_label'],
+                'progress'        => SevenLS_VP\Sync_Lock::get_progress($job_id),
+                'batched'         => true,
+                'phase'           => $outcome['phase'] ?? 'prepare_remote',
+                'continue'        => !empty($outcome['continue']),
+            ]);
+        }
 
         $outcome = $this->perform_sync_action($sync_action, $job_id);
 
@@ -228,6 +263,47 @@ class SevenLS_VP_Admin {
     }
 
     /**
+     * AJAX: process the next full sync batch.
+     */
+    public function ajax_process_sync_batch(): void {
+        check_ajax_referer('sevenls_vp_sync_ajax', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error([
+                'message' => __('คุณไม่มีสิทธิ์เข้าถึง', '7ls-video-publisher'),
+            ], 403);
+        }
+
+        $job_id = $this->get_requested_job_id();
+        if ($job_id === '') {
+            wp_send_json_error([
+                'message' => __('ไม่พบรหัสงานซิงก์', '7ls-video-publisher'),
+            ], 400);
+        }
+
+        $controller = new SevenLS_VP\Sync_Controller();
+        $result = $controller->process_full_sync_batch($job_id);
+
+        if (is_wp_error($result)) {
+            wp_send_json_error([
+                'job_id'   => $job_id,
+                'message'  => $result->get_error_message(),
+                'progress' => SevenLS_VP\Sync_Lock::get_progress($job_id),
+            ], 500);
+        }
+
+        wp_send_json_success([
+            'job_id'    => $job_id,
+            'batched'   => true,
+            'phase'     => $result['phase'] ?? '',
+            'continue'  => !empty($result['continue']),
+            'message'   => $result['message'] ?? '',
+            'progress'  => $result['progress'] ?? SevenLS_VP\Sync_Lock::get_progress($job_id),
+            'result'    => $result['result'] ?? null,
+        ]);
+    }
+
+    /**
      * AJAX: poll current sync progress.
      */
     public function ajax_get_sync_progress(): void {
@@ -235,14 +311,14 @@ class SevenLS_VP_Admin {
 
         if (!current_user_can('manage_options')) {
             wp_send_json_error([
-                'message' => __('Unauthorized', '7ls-video-publisher'),
+                'message' => __('คุณไม่มีสิทธิ์เข้าถึง', '7ls-video-publisher'),
             ], 403);
         }
 
         $job_id = $this->get_requested_job_id();
         if ($job_id === '') {
             wp_send_json_error([
-                'message' => __('Missing sync job ID.', '7ls-video-publisher'),
+                'message' => __('ไม่พบรหัสงานซิงก์', '7ls-video-publisher'),
             ], 400);
         }
 
@@ -252,7 +328,7 @@ class SevenLS_VP_Admin {
             $progress = [
                 'job_id'       => $job_id,
                 'status'       => 'queued',
-                'message'      => __('Preparing sync...', '7ls-video-publisher'),
+                'message'      => __('กำลังเตรียมการซิงก์...', '7ls-video-publisher'),
                 'label'        => '',
                 'operation'    => '',
                 'mode'         => '',
@@ -286,7 +362,7 @@ class SevenLS_VP_Admin {
      */
     private function handle_sync_form_submission(string $sync_action): void {
         if (!current_user_can('manage_options')) {
-            wp_die(__('Unauthorized', '7ls-video-publisher'));
+            wp_die(__('คุณไม่มีสิทธิ์เข้าถึง', '7ls-video-publisher'));
         }
 
         $outcome = $this->perform_sync_action($sync_action);
@@ -352,27 +428,27 @@ class SevenLS_VP_Admin {
         switch ($sync_action) {
             case 'manual_sync':
                 return [
-                    'operation_label'   => __('Update Latest/New Videos', '7ls-video-publisher'),
+                    'operation_label'   => __('อัปเดตวิดีโอล่าสุด/วิดีโอใหม่', '7ls-video-publisher'),
                     'controller_method' => 'update_new_videos',
-                    'success_template'  => __('Sync completed (%s): %d videos processed (%d created, %d updated) in %.1fs', '7ls-video-publisher'),
+                    'success_template'  => __('ซิงก์เสร็จแล้ว (%s): ประมวลผล %d วิดีโอ (สร้าง %d, อัปเดต %d) ใน %.1f วินาที', '7ls-video-publisher'),
                 ];
 
             case 'force_recent_sync':
                 return [
-                    'operation_label'   => __('Force Latest 2 Days', '7ls-video-publisher'),
+                    'operation_label'   => __('บังคับอัปเดตย้อนหลัง 2 วัน', '7ls-video-publisher'),
                     'controller_method' => 'force_recent_videos_update',
-                    'success_template'  => __('Force sync completed for the last 2 days (%s): %d videos processed (%d created, %d updated) in %.1fs', '7ls-video-publisher'),
+                    'success_template'  => __('บังคับซิงก์ย้อนหลัง 2 วันเสร็จแล้ว (%s): ประมวลผล %d วิดีโอ (สร้าง %d, อัปเดต %d) ใน %.1f วินาที', '7ls-video-publisher'),
                 ];
 
             case 'full_sync':
                 return [
-                    'operation_label'   => __('Full Sync (Force)', '7ls-video-publisher'),
+                    'operation_label'   => __('ซิงก์ข้อมูลทั้งหมด (บังคับ)', '7ls-video-publisher'),
                     'controller_method' => 'initial_full_update',
-                    'success_template'  => __('Full sync completed (%s): %d videos processed (%d created, %d updated) in %.1fs', '7ls-video-publisher'),
+                    'success_template'  => __('ซิงก์ข้อมูลทั้งหมดเสร็จแล้ว (%s): ประมวลผล %d วิดีโอ (สร้าง %d, อัปเดต %d) ใน %.1f วินาที', '7ls-video-publisher'),
                 ];
         }
 
-        return new \WP_Error('invalid_sync_action', __('Invalid sync action.', '7ls-video-publisher'));
+        return new \WP_Error('invalid_sync_action', __('คำสั่งซิงก์ไม่ถูกต้อง', '7ls-video-publisher'));
     }
 
     private function get_requested_job_id(): string {
@@ -407,7 +483,7 @@ class SevenLS_VP_Admin {
      */
     public function render_settings_page(): void {
         if (!current_user_can('manage_options')) {
-            wp_die(__('Unauthorized', '7ls-video-publisher'));
+            wp_die(__('คุณไม่มีสิทธิ์เข้าถึง', '7ls-video-publisher'));
         }
         
         require_once SEVENLS_VP_PLUGIN_DIR . 'admin/views/settings-page.php';
@@ -418,7 +494,7 @@ class SevenLS_VP_Admin {
      */
     public function render_logs_page(): void {
         if (!current_user_can('manage_options')) {
-            wp_die(__('Unauthorized', '7ls-video-publisher'));
+            wp_die(__('คุณไม่มีสิทธิ์เข้าถึง', '7ls-video-publisher'));
         }
         
         require_once SEVENLS_VP_PLUGIN_DIR . 'admin/views/logs-page.php';
@@ -434,9 +510,9 @@ class SevenLS_VP_Admin {
             $new_columns[$key] = $value;
             
             if ($key === 'title') {
-                $new_columns['external_id'] = __('External ID', '7ls-video-publisher');
-                $new_columns['duration'] = __('Duration', '7ls-video-publisher');
-                $new_columns['updated_at'] = __('API Updated', '7ls-video-publisher');
+                $new_columns['external_id'] = __('รหัสภายนอก', '7ls-video-publisher');
+                $new_columns['duration'] = __('ความยาว', '7ls-video-publisher');
+                $new_columns['updated_at'] = __('อัปเดตจาก API', '7ls-video-publisher');
             }
         }
         

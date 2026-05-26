@@ -82,7 +82,13 @@ class Site_Profile {
      * Featured-image sideloading is only needed for the standard profile.
      */
     public static function should_sideload_featured_image(): bool {
-        return !self::is_retrotube_enabled();
+        if (self::is_retrotube_enabled()) {
+            return false;
+        }
+
+        $settings = get_option('sevenls_vp_settings', []);
+
+        return !empty($settings['download_featured_images']);
     }
 
     /**

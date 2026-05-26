@@ -13,10 +13,20 @@ class Sync_Engine {
     private API_Client     $api_client;
     private ?Mode_Strategy $strategy;
     private array          $settings;
+    /** @var array<string, \WP_Post|null> */
+    private array          $existing_post_cache = [];
+    /** @var array<int, array<string, mixed>> */
+    private array          $post_meta_cache = [];
+    /** @var array<string, int|null> */
+    private array          $actor_term_cache = [];
+    /** @var array<string, int|null> */
+    private array          $actor_parent_cache = [];
 
     private const PROGRESS_UPDATE_INTERVAL = 10;
     private const PROGRESS_PENDING_ITEMS_LIMIT = 8;
     private const PROGRESS_RECENT_RESULTS_LIMIT = 10;
+    private const DEFAULT_BATCH_SIZE = 100;
+    private const MAX_SYNC_PAGES = 0;
     private const SYNC_TIME_LIMIT_SECONDS = 0;
     private const THUMBNAIL_DOWNLOAD_TIMEOUT = 20;
 
@@ -40,20 +50,8 @@ class Sync_Engine {
         $this->extend_execution_time_limit();
 
         $start_time = microtime(true);
-        $processed  = 0;
-        $created    = 0;
-        $updated    = 0;
-        $errors     = 0;
-
         $full_sync      = !empty($options['full_sync']);
-        $bypass_cache   = !empty($options['bypass_cache']) || $full_sync;
         $since_override = $options['since'] ?? null;
-        $progress_job_id = isset($options['progress_job_id']) && is_string($options['progress_job_id'])
-            ? $options['progress_job_id']
-            : null;
-        $progress_min_percent = isset($options['progress_min_percent']) ? (int) $options['progress_min_percent'] : 0;
-        $progress_max_percent = isset($options['progress_max_percent']) ? (int) $options['progress_max_percent'] : 99;
-
         $last_sync = $full_sync ? null : ($since_override ?: get_option('sevenls_vp_last_sync', null));
 
         if ($full_sync) {
@@ -68,178 +66,58 @@ class Sync_Engine {
             'info'
         );
 
-        // Paginate through API
-        $page                = 1;
-        $has_more            = true;
-        $per_page            = 50;
-        $total_items         = null;
-        $progress_total_pages = null;
-        $recent_results      = [];
-        $error_items         = [];
+        $state = [
+            'page'           => 1,
+            'per_page'       => $this->resolve_batch_size($options['per_page'] ?? null),
+            'processed'      => 0,
+            'created'        => 0,
+            'updated'        => 0,
+            'errors'         => 0,
+            'recent_results' => [],
+            'error_items'    => [],
+            'total_items'    => null,
+            'total_pages'    => null,
+        ];
 
-        while ($has_more) {
-            Sync_Lock::refresh();
-            $transient_key = 'sevenls_vp_page_' . $page;
-            $cached_data   = $bypass_cache ? false : get_transient($transient_key);
+        while (true) {
+            $batch = $this->sync_batch(array_merge($options, [
+                'page'             => $state['page'],
+                'per_page'         => $state['per_page'],
+                'since'            => $last_sync,
+                'processed'        => $state['processed'],
+                'created'          => $state['created'],
+                'updated'          => $state['updated'],
+                'errors'           => $state['errors'],
+                'recent_results'   => $state['recent_results'],
+                'error_items'      => $state['error_items'],
+                'total_items'      => $state['total_items'],
+                'total_pages'      => $state['total_pages'],
+                'clear_sync_cache' => false,
+            ]));
 
-            if ($cached_data !== false) {
-                $response = $cached_data;
-            } else {
-                $response = $this->api_client->fetch_videos([
-                    'page'     => $page,
-                    'per_page' => $per_page,
-                    'since'    => $last_sync,
-                ]);
-
-                if (is_wp_error($response)) {
-                    Logger::log("Sync failed on page {$page}: {$response->get_error_message()}", 'error');
-                    return $response;
-                }
-
-                if (!$bypass_cache) {
-                    set_transient($transient_key, $response, 300);
-                }
+            if (is_wp_error($batch)) {
+                return $batch;
             }
 
-            $pagination       = $response['pagination'] ?? [];
-            $videos = $response['data'] ?? [];
-            $video_count = count($videos);
-            $page_label = $this->build_page_progress_label($page, $pagination, $video_count, $per_page);
-            $pending_items = $this->build_pending_progress_items($videos, 0);
+            $state['processed']      = $batch['processed'];
+            $state['created']        = $batch['created'];
+            $state['updated']        = $batch['updated'];
+            $state['errors']         = $batch['errors'];
+            $state['recent_results'] = $batch['recent_results'];
+            $state['error_items']    = $batch['error_items'];
+            $state['total_items']    = $batch['total_items'];
+            $state['total_pages']    = $batch['total_pages'];
 
-            if (isset($pagination['total']) && $pagination['total'] !== null) {
-                $total_items = max(0, (int) $pagination['total']);
-            }
-
-            $resolved_total_pages = $this->resolve_progress_total_pages($pagination, $video_count, $per_page);
-            if ($resolved_total_pages !== null) {
-                $progress_total_pages = $resolved_total_pages;
-            }
-
-            $this->update_sync_progress($progress_job_id, [
-                'status'       => 'running',
-                'message'      => sprintf(__('Processing %s...', '7ls-video-publisher'), $page_label),
-                'percent'      => $this->build_progress_percent(
-                    handled: $processed + $errors,
-                    total_items: $total_items,
-                    current_page: $page,
-                    total_pages: $progress_total_pages,
-                    current_page_position: 0,
-                    current_page_total: $video_count,
-                    min_percent: $progress_min_percent,
-                    max_percent: $progress_max_percent
-                ),
-                'processed'    => $processed,
-                'handled'      => $processed + $errors,
-                'created'      => $created,
-                'updated'      => $updated,
-                'errors'       => $errors,
-                'completed_items' => $processed,
-                'current_page' => $page,
-                'total_pages'  => $progress_total_pages,
-                'total_items'  => $total_items,
-                'current_item' => '',
-                'pending_items' => $pending_items,
-                'recent_results' => $recent_results,
-                'error_items' => $error_items,
-            ]);
-
-            foreach ($videos as $index => $video_data) {
-                Sync_Lock::refresh();
-                $item_label = $this->build_progress_video_label($video_data);
-                $result = $this->process_video($video_data);
-
-                if (is_wp_error($result)) {
-                    $errors++;
-                    $vid_id = $video_data['id'] ?? $video_data['video_id'] ?? 'unknown';
-                    Logger::log("Failed to process video {$vid_id}: {$result->get_error_message()}", 'error');
-                    $entry = [
-                        'title'  => $item_label,
-                        'status' => 'error',
-                        'detail' => $result->get_error_message(),
-                    ];
-                    $recent_results = $this->append_progress_entry($recent_results, $entry);
-                    $error_items = $this->append_progress_entry($error_items, $entry, 6);
-                } else {
-                    $processed++;
-                    if ($result['action'] === 'created') {
-                        $created++;
-                    } else {
-                        $updated++;
-                    }
-
-                    $recent_results = $this->append_progress_entry($recent_results, [
-                        'title'  => $item_label,
-                        'status' => $result['action'],
-                        'detail' => $result['action'] === 'created'
-                            ? __('New video created successfully.', '7ls-video-publisher')
-                            : __('Existing video updated successfully.', '7ls-video-publisher'),
-                    ]);
-                }
-
-                $handled = $processed + $errors;
-                $is_last_video_on_page = $index === ($video_count - 1);
-                $pending_items = $this->build_pending_progress_items($videos, $index + 1);
-
-                if ($progress_job_id && ($handled % self::PROGRESS_UPDATE_INTERVAL === 0 || $is_last_video_on_page || $video_count <= self::PROGRESS_PENDING_ITEMS_LIMIT)) {
-                    $this->update_sync_progress($progress_job_id, [
-                        'status'       => 'running',
-                        'message'      => is_wp_error($result)
-                            ? sprintf(__('Failed to update "%1$s" on %2$s.', '7ls-video-publisher'), $item_label, $page_label)
-                            : sprintf(__('Updated "%1$s" on %2$s.', '7ls-video-publisher'), $item_label, $page_label),
-                        'percent'      => $this->build_progress_percent(
-                            handled: $handled,
-                            total_items: $total_items,
-                            current_page: $page,
-                            total_pages: $progress_total_pages,
-                            current_page_position: $index + 1,
-                            current_page_total: $video_count,
-                            min_percent: $progress_min_percent,
-                            max_percent: $progress_max_percent
-                        ),
-                        'processed'    => $processed,
-                        'handled'      => $handled,
-                        'created'      => $created,
-                        'updated'      => $updated,
-                        'errors'       => $errors,
-                        'completed_items' => $processed,
-                        'current_page' => $page,
-                        'total_pages'  => $progress_total_pages,
-                        'total_items'  => $total_items,
-                        'current_item' => $item_label,
-                        'pending_items' => $pending_items,
-                        'recent_results' => $recent_results,
-                        'error_items' => $error_items,
-                    ]);
-                }
-            }
-
-            // Pagination logic
-            $has_more   = false;
-            $next_page  = isset($pagination['next_page']) ? (int) $pagination['next_page'] : null;
-
-            if (array_key_exists('has_more', $pagination) && $pagination['has_more'] !== null) {
-                $has_more = (bool) $pagination['has_more'];
-            } elseif ($next_page && $next_page > $page) {
-                $has_more = true;
-            } elseif (($pagination['page'] ?? null) !== null && ($pagination['total_pages'] ?? null) !== null) {
-                $has_more = (int) $pagination['page'] < (int) $pagination['total_pages'];
-            } elseif (count($videos) === $per_page) {
-                $has_more = true;
-            }
-
-            if (empty($videos)) {
-                $has_more = false;
-            }
-
-            if ($has_more) {
-                $page = ($next_page && $next_page > $page) ? $next_page : $page + 1;
-            }
-
-            if ($page > 100) {
-                Logger::log('Sync stopped: reached page limit (100)', 'warning');
+            if (empty($batch['has_more'])) {
                 break;
             }
+
+            $next_page = isset($batch['next_page']) ? (int) $batch['next_page'] : 0;
+            if ($next_page < 1) {
+                break;
+            }
+
+            $state['page'] = $next_page;
         }
 
         update_option('sevenls_vp_last_sync', current_time('mysql'));
@@ -247,19 +125,247 @@ class Sync_Engine {
         $duration = round(microtime(true) - $start_time, 2);
 
         $summary = [
-            'processed' => $processed,
-            'created'   => $created,
-            'updated'   => $updated,
-            'errors'    => $errors,
+            'processed' => $state['processed'],
+            'created'   => $state['created'],
+            'updated'   => $state['updated'],
+            'errors'    => $state['errors'],
             'duration'  => $duration,
         ];
 
         Logger::log(sprintf(
             'Sync completed: %d processed (%d created, %d updated, %d errors) in %s seconds',
-            $processed, $created, $updated, $errors, $duration
+            $state['processed'], $state['created'], $state['updated'], $state['errors'], $duration
         ), 'info');
 
         return $summary;
+    }
+
+    /**
+     * Process exactly one API page in a bounded request.
+     *
+     * @param array $options Sync batch options.
+     * @return array|\WP_Error
+     */
+    public function sync_batch(array $options = []): array|\WP_Error {
+        $this->extend_execution_time_limit();
+
+        $page = max(1, (int) ($options['page'] ?? 1));
+        $per_page = $this->resolve_batch_size($options['per_page'] ?? null);
+        $full_sync = !empty($options['full_sync']);
+        $bypass_cache = !empty($options['bypass_cache']) || $full_sync;
+        $since = isset($options['since']) && is_string($options['since']) ? $options['since'] : null;
+        $progress_job_id = isset($options['progress_job_id']) && is_string($options['progress_job_id'])
+            ? $options['progress_job_id']
+            : null;
+        $progress_min_percent = isset($options['progress_min_percent']) ? (int) $options['progress_min_percent'] : 0;
+        $progress_max_percent = isset($options['progress_max_percent']) ? (int) $options['progress_max_percent'] : 99;
+        $processed = max(0, (int) ($options['processed'] ?? 0));
+        $created = max(0, (int) ($options['created'] ?? 0));
+        $updated = max(0, (int) ($options['updated'] ?? 0));
+        $errors = max(0, (int) ($options['errors'] ?? 0));
+        $total_items = isset($options['total_items']) && $options['total_items'] !== null
+            ? max(0, (int) $options['total_items'])
+            : null;
+        $progress_total_pages = isset($options['total_pages']) && $options['total_pages'] !== null
+            ? max(0, (int) $options['total_pages'])
+            : null;
+        $recent_results = isset($options['recent_results']) && is_array($options['recent_results'])
+            ? $options['recent_results']
+            : [];
+        $error_items = isset($options['error_items']) && is_array($options['error_items'])
+            ? $options['error_items']
+            : [];
+
+        if ($full_sync && !empty($options['clear_sync_cache'])) {
+            $this->clear_sync_transients();
+        }
+
+        Sync_Lock::refresh();
+        $transient_key = 'sevenls_vp_page_' . $page;
+        $cached_data   = $bypass_cache ? false : get_transient($transient_key);
+
+        if ($cached_data !== false) {
+            $response = $cached_data;
+        } else {
+            $response = $this->api_client->fetch_videos([
+                'page'     => $page,
+                'per_page' => $per_page,
+                'since'    => $since,
+            ]);
+
+            if (is_wp_error($response)) {
+                Logger::log("Sync failed on page {$page}: {$response->get_error_message()}", 'error');
+                return $response;
+            }
+
+            if (!$bypass_cache) {
+                set_transient($transient_key, $response, 300);
+            }
+        }
+
+        $pagination    = $response['pagination'] ?? [];
+        $videos        = $response['data'] ?? [];
+        $video_count   = count($videos);
+        $this->prime_existing_post_cache($videos);
+        $page_label    = $this->build_page_progress_label($page, $pagination, $video_count, $per_page);
+        $pending_items = $this->build_pending_progress_items($videos, 0);
+
+        if (isset($pagination['total']) && $pagination['total'] !== null) {
+            $total_items = max(0, (int) $pagination['total']);
+        }
+
+        $resolved_total_pages = $this->resolve_progress_total_pages($pagination, $video_count, $per_page);
+        if ($resolved_total_pages !== null) {
+            $progress_total_pages = $resolved_total_pages;
+        }
+
+        $this->update_sync_progress($progress_job_id, [
+            'status'       => 'running',
+            'message'      => sprintf(__('กำลังประมวลผล%s...', '7ls-video-publisher'), $page_label),
+            'percent'      => $this->build_progress_percent(
+                handled: $processed + $errors,
+                total_items: $total_items,
+                current_page: $page,
+                total_pages: $progress_total_pages,
+                current_page_position: 0,
+                current_page_total: $video_count,
+                min_percent: $progress_min_percent,
+                max_percent: $progress_max_percent
+            ),
+            'processed'    => $processed,
+            'handled'      => $processed + $errors,
+            'created'      => $created,
+            'updated'      => $updated,
+            'errors'       => $errors,
+            'completed_items' => $processed,
+            'current_page' => $page,
+            'total_pages'  => $progress_total_pages,
+            'total_items'  => $total_items,
+            'current_item' => '',
+            'pending_items' => $pending_items,
+            'recent_results' => $recent_results,
+            'error_items' => $error_items,
+        ]);
+
+        foreach ($videos as $index => $video_data) {
+            Sync_Lock::refresh();
+            $item_label = $this->build_progress_video_label($video_data);
+            $result = $this->process_video($video_data);
+
+            if (is_wp_error($result)) {
+                $errors++;
+                $vid_id = $video_data['id'] ?? $video_data['video_id'] ?? 'unknown';
+                Logger::log("Failed to process video {$vid_id}: {$result->get_error_message()}", 'error');
+                $entry = [
+                    'title'  => $item_label,
+                    'status' => 'error',
+                    'detail' => $result->get_error_message(),
+                ];
+                $recent_results = $this->append_progress_entry($recent_results, $entry);
+                $error_items = $this->append_progress_entry($error_items, $entry, 6);
+            } else {
+                $processed++;
+                if ($result['action'] === 'created') {
+                    $created++;
+                } else {
+                    $updated++;
+                }
+
+                $recent_results = $this->append_progress_entry($recent_results, [
+                    'title'  => $item_label,
+                    'status' => $result['action'],
+                    'detail' => isset($result['message']) && is_string($result['message']) && $result['message'] !== ''
+                        ? $result['message']
+                        : ($result['action'] === 'created'
+                            ? __('สร้างวิดีโอใหม่เรียบร้อยแล้ว', '7ls-video-publisher')
+                            : __('อัปเดตวิดีโอเดิมเรียบร้อยแล้ว', '7ls-video-publisher')),
+                ]);
+            }
+
+            $handled = $processed + $errors;
+            $is_last_video_on_page = $index === ($video_count - 1);
+            $pending_items = $this->build_pending_progress_items($videos, $index + 1);
+
+            if ($progress_job_id && ($handled % self::PROGRESS_UPDATE_INTERVAL === 0 || $is_last_video_on_page || $video_count <= self::PROGRESS_PENDING_ITEMS_LIMIT)) {
+                $this->update_sync_progress($progress_job_id, [
+                    'status'       => 'running',
+                    'message'      => is_wp_error($result)
+                        ? sprintf(__('อัปเดต "%1$s" ไม่สำเร็จที่%2$s', '7ls-video-publisher'), $item_label, $page_label)
+                        : sprintf(__('อัปเดต "%1$s" แล้วที่%2$s', '7ls-video-publisher'), $item_label, $page_label),
+                    'percent'      => $this->build_progress_percent(
+                        handled: $handled,
+                        total_items: $total_items,
+                        current_page: $page,
+                        total_pages: $progress_total_pages,
+                        current_page_position: $index + 1,
+                        current_page_total: $video_count,
+                        min_percent: $progress_min_percent,
+                        max_percent: $progress_max_percent
+                    ),
+                    'processed'    => $processed,
+                    'handled'      => $handled,
+                    'created'      => $created,
+                    'updated'      => $updated,
+                    'errors'       => $errors,
+                    'completed_items' => $processed,
+                    'current_page' => $page,
+                    'total_pages'  => $progress_total_pages,
+                    'total_items'  => $total_items,
+                    'current_item' => $item_label,
+                    'pending_items' => $pending_items,
+                    'recent_results' => $recent_results,
+                    'error_items' => $error_items,
+                ]);
+            }
+        }
+
+        $has_more = false;
+        $next_page = isset($pagination['next_page']) ? (int) $pagination['next_page'] : null;
+
+        if (array_key_exists('has_more', $pagination) && $pagination['has_more'] !== null) {
+            $has_more = (bool) $pagination['has_more'];
+        } elseif ($next_page && $next_page > $page) {
+            $has_more = true;
+        } elseif (($pagination['page'] ?? null) !== null && ($pagination['total_pages'] ?? null) !== null) {
+            $has_more = (int) $pagination['page'] < (int) $pagination['total_pages'];
+        } elseif ($video_count === $per_page) {
+            $has_more = true;
+        }
+
+        if ($videos === []) {
+            $has_more = false;
+        }
+
+        $resolved_next_page = null;
+        if ($has_more) {
+            $resolved_next_page = ($next_page && $next_page > $page) ? $next_page : $page + 1;
+        }
+
+        if ($resolved_next_page !== null && $this->has_reached_sync_page_limit($resolved_next_page)) {
+            Logger::log(
+                sprintf('Sync stopped: reached page limit (%d)', $this->resolve_sync_page_limit()),
+                'warning'
+            );
+            $has_more = false;
+            $resolved_next_page = null;
+        }
+
+        return [
+            'page'           => $page,
+            'per_page'       => $per_page,
+            'has_more'       => $has_more,
+            'next_page'      => $resolved_next_page,
+            'processed'      => $processed,
+            'created'        => $created,
+            'updated'        => $updated,
+            'errors'         => $errors,
+            'handled'        => $processed + $errors,
+            'total_items'    => $total_items,
+            'total_pages'    => $progress_total_pages,
+            'recent_results' => $recent_results,
+            'error_items'    => $error_items,
+            'video_count'    => $video_count,
+        ];
     }
 
     /**
@@ -315,26 +421,37 @@ class Sync_Engine {
         $existing_post = $this->find_existing_post($mapped['external_id']);
 
         if ($existing_post) {
-            $post_id = $this->update_video_post($existing_post->ID, $mapped);
-            $action  = 'updated';
+            if ($this->can_skip_existing_post_update($existing_post, $mapped)) {
+                $post_id = $existing_post->ID;
+                $action  = 'updated';
+                $message = __('ไม่พบการเปลี่ยนแปลง จึงข้ามขั้นตอนอัปเดตหนักเพื่อให้ทำงานเร็วขึ้น', '7ls-video-publisher');
+            } else {
+                $post_id = $this->update_video_post($existing_post->ID, $mapped, $existing_post);
+                $action  = 'updated';
+                $message = __('อัปเดตวิดีโอเดิมเรียบร้อยแล้ว', '7ls-video-publisher');
+            }
         } else {
             $post_id = $this->create_video_post($mapped);
             $action  = 'created';
+            $message = __('สร้างวิดีโอใหม่เรียบร้อยแล้ว', '7ls-video-publisher');
         }
 
         if (is_wp_error($post_id)) {
             return $post_id;
         }
 
+        $saved_post = get_post($post_id);
+        $this->existing_post_cache[$mapped['external_id']] = $saved_post instanceof \WP_Post ? $saved_post : null;
+
         // Save content_mode meta (strategy-aware)
         if ($this->strategy) {
-            update_post_meta($post_id, '_sevenls_vp_content_mode', $this->strategy->get_mode_key());
+            $this->update_post_meta_if_changed($post_id, '_sevenls_vp_content_mode', $this->strategy->get_mode_key());
 
             // Save mode-specific extra meta
             if (!empty($mapped['extra_meta'])) {
                 foreach ($mapped['extra_meta'] as $key => $value) {
                     if ($value !== '') {
-                        update_post_meta($post_id, '_sevenls_vp_' . $key, $value);
+                        $this->update_post_meta_if_changed($post_id, '_sevenls_vp_' . $key, $value);
                     }
                 }
             }
@@ -343,6 +460,7 @@ class Sync_Engine {
         return [
             'post_id' => $post_id,
             'action'  => $action,
+            'message' => $message,
         ];
     }
 
@@ -356,7 +474,7 @@ class Sync_Engine {
         $external_id = $video_data['id'] ?? $video_data['video_id'] ?? $video_data['videoId'] ?? '';
 
         if (empty($external_id)) {
-            return new \WP_Error('missing_field', __('Video ID is required', '7ls-video-publisher'));
+            return new \WP_Error('missing_field', __('จำเป็นต้องมีรหัสวิดีโอ', '7ls-video-publisher'));
         }
 
         $playback_url  = $video_data['playback_url'] ?? $video_data['playbackUrl'] ?? '';
@@ -377,7 +495,7 @@ class Sync_Engine {
 
         return [
             'external_id'   => sanitize_text_field($external_id),
-            'title'          => sanitize_text_field($video_data['title'] ?? $video_data['name'] ?? 'Untitled Video'),
+            'title'          => sanitize_text_field($video_data['title'] ?? $video_data['name'] ?? 'วิดีโอไม่มีชื่อ'),
             'description'    => wp_kses_post($video_data['description'] ?? $video_data['desc'] ?? ''),
             'video_url'      => esc_url_raw($video_url),
             'playback_url'   => esc_url_raw($playback_url),
@@ -459,25 +577,40 @@ class Sync_Engine {
     // ─── Post CRUD ──────────────────────────────────────────
 
     private function find_existing_post(string $external_id): ?\WP_Post {
-        $args = [
-            'post_type'              => Site_Profile::get_import_post_type(),
-            'post_status'            => 'any',
-            'posts_per_page'         => 1,
-            'no_found_rows'          => true,
-            'update_post_meta_cache' => false,
-            'update_post_term_cache' => false,
-            'meta_query'             => [
-                [
-                    'key'     => '_sevenls_vp_external_id',
-                    'value'   => $external_id,
-                    'compare' => '=',
-                ],
-            ],
-        ];
+        $external_id = sanitize_text_field($external_id);
+        if ($external_id === '') {
+            return null;
+        }
 
-        $query = new \WP_Query($args);
+        if (array_key_exists($external_id, $this->existing_post_cache)) {
+            return $this->existing_post_cache[$external_id];
+        }
 
-        return $query->have_posts() ? $query->posts[0] : null;
+        global $wpdb;
+
+        if (!$wpdb) {
+            return null;
+        }
+
+        $post_type = Site_Profile::get_import_post_type();
+        $post_id = $wpdb->get_var($wpdb->prepare(
+            "SELECT p.ID
+             FROM {$wpdb->posts} AS p
+             INNER JOIN {$wpdb->postmeta} AS pm ON pm.post_id = p.ID
+             WHERE p.post_type = %s
+               AND pm.meta_key = %s
+               AND pm.meta_value = %s
+             ORDER BY p.ID DESC
+             LIMIT 1",
+            $post_type,
+            '_sevenls_vp_external_id',
+            $external_id
+        ));
+
+        $post = $post_id ? get_post((int) $post_id) : null;
+        $this->existing_post_cache[$external_id] = $post instanceof \WP_Post ? $post : null;
+
+        return $this->existing_post_cache[$external_id];
     }
 
     private function create_video_post(array $data): int|\WP_Error {
@@ -507,25 +640,32 @@ class Sync_Engine {
         return $post_id;
     }
 
-    private function update_video_post(int $post_id, array $data): int|\WP_Error {
-        $post_data = [
-            'ID'           => $post_id,
-            'post_title'   => $data['title'],
-            'post_content' => $data['description'],
-        ];
+    private function update_video_post(int $post_id, array $data, ?\WP_Post $existing_post = null): int|\WP_Error {
+        $existing_post = $existing_post instanceof \WP_Post ? $existing_post : get_post($post_id);
+        $previous_thumb = (string) $this->get_cached_post_meta_value($post_id, '_sevenls_vp_thumbnail_url');
 
-        $result = wp_update_post($post_data, true);
+        if (
+            $existing_post instanceof \WP_Post
+            && ($existing_post->post_title !== (string) $data['title'] || $existing_post->post_content !== (string) $data['description'])
+        ) {
+            $post_data = [
+                'ID'           => $post_id,
+                'post_title'   => $data['title'],
+                'post_content' => $data['description'],
+            ];
 
-        if (is_wp_error($result)) {
-            return $result;
+            $result = wp_update_post($post_data, true);
+
+            if (is_wp_error($result)) {
+                return $result;
+            }
         }
 
         $this->save_video_meta($post_id, $data);
         $this->set_taxonomies($post_id, $data);
 
         // Update thumbnail only if URL changed
-        $current_thumb = get_post_meta($post_id, '_sevenls_vp_thumbnail_url', true);
-        if (Site_Profile::should_sideload_featured_image() && !empty($data['thumbnail_url']) && $data['thumbnail_url'] !== $current_thumb) {
+        if (Site_Profile::should_sideload_featured_image() && !empty($data['thumbnail_url']) && $data['thumbnail_url'] !== $previous_thumb) {
             $this->set_post_thumbnail($post_id, $data['thumbnail_url']);
         }
 
@@ -535,14 +675,17 @@ class Sync_Engine {
     }
 
     private function save_video_meta(int $post_id, array $data): void {
-        update_post_meta($post_id, '_sevenls_vp_external_id', $data['external_id']);
-        update_post_meta($post_id, '_sevenls_vp_video_url', $data['video_url']);
-        update_post_meta($post_id, '_sevenls_vp_playback_url', $data['playback_url'] ?? '');
-        update_post_meta($post_id, '_sevenls_vp_thumbnail_url', $data['thumbnail_url']);
-        update_post_meta($post_id, '_sevenls_vp_duration', $data['duration']);
-        update_post_meta($post_id, '_sevenls_vp_source_created_at', $data['created_at']);
-        update_post_meta($post_id, '_sevenls_vp_source_updated_at', $data['updated_at']);
-        update_post_meta($post_id, '_sevenls_vp_raw_payload', $data['raw_payload']);
+        $this->update_post_meta_if_changed($post_id, '_sevenls_vp_external_id', $data['external_id']);
+        $this->update_post_meta_if_changed($post_id, '_sevenls_vp_video_url', $data['video_url']);
+        $this->update_post_meta_if_changed($post_id, '_sevenls_vp_playback_url', $data['playback_url'] ?? '');
+        $this->update_post_meta_if_changed($post_id, '_sevenls_vp_thumbnail_url', $data['thumbnail_url']);
+        $this->update_post_meta_if_changed($post_id, '_sevenls_vp_duration', absint($data['duration'] ?? 0));
+        $this->update_post_meta_if_changed($post_id, '_sevenls_vp_source_created_at', $data['created_at']);
+        $this->update_post_meta_if_changed($post_id, '_sevenls_vp_source_updated_at', $data['updated_at']);
+
+        if ($this->should_store_raw_payload() && !empty($data['raw_payload'])) {
+            $this->update_post_meta_if_changed($post_id, '_sevenls_vp_raw_payload', $data['raw_payload']);
+        }
 
         if (Site_Profile::is_retrotube_enabled()) {
             $this->save_retrotube_meta($post_id, $data);
@@ -588,9 +731,9 @@ class Sync_Engine {
             $video_url = $data['video_url'] ?? '';
         }
 
-        update_post_meta($post_id, 'video_url', $video_url);
-        update_post_meta($post_id, 'thumb', $data['thumbnail_url'] ?? '');
-        update_post_meta($post_id, 'duration', absint($data['duration'] ?? 0));
+        $this->update_post_meta_if_changed($post_id, 'video_url', $video_url);
+        $this->update_post_meta_if_changed($post_id, 'thumb', $data['thumbnail_url'] ?? '');
+        $this->update_post_meta_if_changed($post_id, 'duration', absint($data['duration'] ?? 0));
 
         if (!metadata_exists('post', $post_id, 'post_views_count')) {
             update_post_meta($post_id, 'post_views_count', 0);
@@ -601,6 +744,137 @@ class Sync_Engine {
         if (!metadata_exists('post', $post_id, 'dislikes_count')) {
             update_post_meta($post_id, 'dislikes_count', 0);
         }
+    }
+
+    private function resolve_batch_size(mixed $requested = null): int {
+        if ($requested !== null && $requested !== '') {
+            return max(10, min(250, (int) $requested));
+        }
+
+        $configured = isset($this->settings['sync_batch_size']) ? (int) $this->settings['sync_batch_size'] : self::DEFAULT_BATCH_SIZE;
+
+        return max(10, min(250, $configured));
+    }
+
+    private function should_store_raw_payload(): bool {
+        return !empty($this->settings['save_raw_payload']);
+    }
+
+    private function prime_existing_post_cache(array $videos): void {
+        $external_ids = [];
+
+        foreach ($videos as $video_data) {
+            if (!is_array($video_data)) {
+                continue;
+            }
+
+            $external_id = $this->extract_external_id_from_raw($video_data);
+            if ($external_id === '' || array_key_exists($external_id, $this->existing_post_cache)) {
+                continue;
+            }
+
+            $external_ids[$external_id] = $external_id;
+        }
+
+        if ($external_ids === []) {
+            return;
+        }
+
+        global $wpdb;
+
+        if (!$wpdb) {
+            return;
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($external_ids), '%s'));
+        $sql = $wpdb->prepare(
+            "SELECT pm.meta_value AS external_id, p.ID AS post_id
+             FROM {$wpdb->posts} AS p
+             INNER JOIN {$wpdb->postmeta} AS pm ON pm.post_id = p.ID
+             WHERE p.post_type = %s
+               AND pm.meta_key = %s
+               AND pm.meta_value IN ({$placeholders})",
+            array_merge(
+                [Site_Profile::get_import_post_type(), '_sevenls_vp_external_id'],
+                array_values($external_ids)
+            )
+        );
+
+        $rows = $wpdb->get_results($sql);
+        $found_ids = [];
+
+        if (is_array($rows)) {
+            foreach ($rows as $row) {
+                if (!is_object($row)) {
+                    continue;
+                }
+
+                $external_id = sanitize_text_field((string) ($row->external_id ?? ''));
+                $post_id = isset($row->post_id) ? (int) $row->post_id : 0;
+
+                if ($external_id === '' || $post_id <= 0) {
+                    continue;
+                }
+
+                $post = get_post($post_id);
+                $this->existing_post_cache[$external_id] = $post instanceof \WP_Post ? $post : null;
+                $found_ids[$external_id] = true;
+            }
+        }
+
+        foreach ($external_ids as $external_id) {
+            if (!isset($found_ids[$external_id])) {
+                $this->existing_post_cache[$external_id] = null;
+            }
+        }
+    }
+
+    private function extract_external_id_from_raw(array $video_data): string {
+        if (isset($video_data['video']) && is_array($video_data['video'])) {
+            $video_data = $video_data['video'];
+        }
+
+        return sanitize_text_field((string) ($video_data['id'] ?? $video_data['video_id'] ?? $video_data['videoId'] ?? ''));
+    }
+
+    private function can_skip_existing_post_update(\WP_Post $existing_post, array $data): bool {
+        $updated_at = isset($data['updated_at']) ? (string) $data['updated_at'] : '';
+        if ($updated_at === '') {
+            return false;
+        }
+
+        $current_updated_at = (string) $this->get_cached_post_meta_value($existing_post->ID, '_sevenls_vp_source_updated_at');
+
+        return $current_updated_at !== '' && $current_updated_at === $updated_at;
+    }
+
+    private function get_cached_post_meta_value(int $post_id, string $key): mixed {
+        if (!isset($this->post_meta_cache[$post_id])) {
+            $this->post_meta_cache[$post_id] = get_post_meta($post_id);
+        }
+
+        $values = $this->post_meta_cache[$post_id][$key] ?? null;
+        if (is_array($values)) {
+            return $values[0] ?? '';
+        }
+
+        return $values;
+    }
+
+    private function update_post_meta_if_changed(int $post_id, string $key, mixed $value): void {
+        $current_value = $this->get_cached_post_meta_value($post_id, $key);
+
+        if ((string) $current_value === (string) $value) {
+            return;
+        }
+
+        update_post_meta($post_id, $key, $value);
+
+        if (!isset($this->post_meta_cache[$post_id])) {
+            $this->post_meta_cache[$post_id] = [];
+        }
+
+        $this->post_meta_cache[$post_id][$key] = [$value];
     }
 
     private function apply_site_profile_after_save(int $post_id): void {
@@ -661,13 +935,25 @@ class Sync_Engine {
         $term_ids  = [];
 
         foreach ($actors as $actor) {
+            $cache_key = $taxonomy . '|' . sanitize_title($actor);
+            if (array_key_exists($cache_key, $this->actor_term_cache)) {
+                $cached_term_id = $this->actor_term_cache[$cache_key];
+                if ($cached_term_id !== null) {
+                    $term_ids[] = $cached_term_id;
+                }
+                continue;
+            }
+
             $existing = term_exists($actor, $taxonomy);
 
             if (is_array($existing)) {
-                $term_ids[] = (int) $existing['term_id'];
+                $term_id = (int) $existing['term_id'];
+                $this->actor_term_cache[$cache_key] = $term_id;
+                $term_ids[] = $term_id;
                 continue;
             }
             if (is_int($existing)) {
+                $this->actor_term_cache[$cache_key] = $existing;
                 $term_ids[] = $existing;
                 continue;
             }
@@ -679,7 +965,11 @@ class Sync_Engine {
 
             $created = wp_insert_term($actor, $taxonomy, $args);
             if (!is_wp_error($created)) {
-                $term_ids[] = (int) $created['term_id'];
+                $term_id = (int) $created['term_id'];
+                $this->actor_term_cache[$cache_key] = $term_id;
+                $term_ids[] = $term_id;
+            } else {
+                $this->actor_term_cache[$cache_key] = null;
             }
         }
 
@@ -692,6 +982,11 @@ class Sync_Engine {
         $taxonomy    = $tax_config['actor_taxonomy'];
         $parent_name = $tax_config['actor_parent_term'];
         $slug        = sanitize_title($parent_name);
+        $cache_key   = $taxonomy . '|' . $slug;
+
+        if (array_key_exists($cache_key, $this->actor_parent_cache)) {
+            return $this->actor_parent_cache[$cache_key];
+        }
 
         $existing = term_exists($slug, $taxonomy);
         if (!$existing) {
@@ -699,16 +994,22 @@ class Sync_Engine {
         }
 
         if ($existing) {
-            return is_array($existing) ? (int) $existing['term_id'] : (int) $existing;
+            $term_id = is_array($existing) ? (int) $existing['term_id'] : (int) $existing;
+            $this->actor_parent_cache[$cache_key] = $term_id;
+            return $term_id;
         }
 
         $created = wp_insert_term($parent_name, $taxonomy, ['slug' => $slug]);
 
         if (is_wp_error($created)) {
+            $this->actor_parent_cache[$cache_key] = null;
             return null;
         }
 
-        return (int) $created['term_id'];
+        $term_id = (int) $created['term_id'];
+        $this->actor_parent_cache[$cache_key] = $term_id;
+
+        return $term_id;
     }
 
     private function update_sync_progress(?string $progress_job_id, array $state): void {
@@ -739,10 +1040,10 @@ class Sync_Engine {
 
         $external_id = $video_data['id'] ?? $video_data['video_id'] ?? $video_data['videoId'] ?? '';
         if (is_scalar($external_id) && $external_id !== '') {
-            return sprintf(__('Video %s', '7ls-video-publisher'), sanitize_text_field((string) $external_id));
+            return sprintf(__('วิดีโอ %s', '7ls-video-publisher'), sanitize_text_field((string) $external_id));
         }
 
-        return __('Untitled video', '7ls-video-publisher');
+        return __('วิดีโอไม่มีชื่อ', '7ls-video-publisher');
     }
 
     /**
@@ -786,10 +1087,10 @@ class Sync_Engine {
         $total_pages = $this->resolve_progress_total_pages($pagination, $video_count, $per_page);
 
         if ($total_pages !== null && $total_pages > 0) {
-            return sprintf(__('page %1$d of %2$d', '7ls-video-publisher'), $page, $total_pages);
+            return sprintf(__('หน้า %1$d จาก %2$d', '7ls-video-publisher'), $page, $total_pages);
         }
 
-        return sprintf(__('page %d', '7ls-video-publisher'), $page);
+        return sprintf(__('หน้า %d', '7ls-video-publisher'), $page);
     }
 
     private function resolve_progress_total_pages(array $pagination, int $video_count, int $per_page): ?int {
@@ -857,6 +1158,18 @@ class Sync_Engine {
 
         $time_limit = (int) apply_filters('sevenls_vp_sync_time_limit', self::SYNC_TIME_LIMIT_SECONDS);
         @set_time_limit(max(0, $time_limit));
+    }
+
+    private function resolve_sync_page_limit(): int {
+        $limit = (int) apply_filters('sevenls_vp_max_sync_pages', self::MAX_SYNC_PAGES);
+
+        return max(0, $limit);
+    }
+
+    private function has_reached_sync_page_limit(int $page): bool {
+        $limit = $this->resolve_sync_page_limit();
+
+        return $limit > 0 && $page > $limit;
     }
 
     /**
