@@ -64,6 +64,14 @@ class SevenLS_VP_Settings {
             'sevenls_vp_api_section',
             ['field' => 'project_id']
         );
+
+        add_settings_field(
+            'allow_self_signed_ssl',
+            __('Allow Self-Signed SSL', '7ls-video-publisher'),
+            [__CLASS__, 'render_insecure_ssl_field'],
+            'sevenls-video-publisher',
+            'sevenls_vp_api_section'
+        );
         
         // Sync Settings Section
         add_settings_section(
@@ -138,6 +146,7 @@ class SevenLS_VP_Settings {
         $sanitized['api_base_url'] = esc_url_raw($input['api_base_url'] ?? '');
         $sanitized['api_key'] = sanitize_text_field($input['api_key'] ?? '');
         $sanitized['project_id'] = sanitize_text_field($input['project_id'] ?? '');
+        $sanitized['allow_self_signed_ssl'] = !empty($input['allow_self_signed_ssl']);
         $sanitized['sync_interval'] = sanitize_text_field($input['sync_interval'] ?? 'hourly');
         $sanitized['post_status'] = in_array($input['post_status'] ?? 'publish', ['draft', 'publish', 'pending']) 
             ? $input['post_status'] 
@@ -270,6 +279,24 @@ class SevenLS_VP_Settings {
 
         echo '<p class="description">';
         esc_html_e('Opt-in only for sites using the RetroTube theme. Imported videos will sync into standard WordPress posts with RetroTube fields. Leave disabled for the main 7LS theme flow. Changing this setting does not migrate existing imported posts.', '7ls-video-publisher');
+        echo '</p>';
+    }
+
+    /**
+     * Render self-signed SSL compatibility field.
+     */
+    public static function render_insecure_ssl_field(): void {
+        $settings = get_option('sevenls_vp_settings', []);
+        $enabled = !empty($settings['allow_self_signed_ssl']);
+
+        printf(
+            '<label><input type="checkbox" name="sevenls_vp_settings[allow_self_signed_ssl]" value="1" %1$s /> %2$s</label>',
+            checked($enabled, true, false),
+            esc_html__('Disable SSL certificate verification for API requests', '7ls-video-publisher')
+        );
+
+        echo '<p class="description">';
+        esc_html_e('Use only in local or staging environments that rely on self-signed certificates. Leave disabled in production.', '7ls-video-publisher');
         echo '</p>';
     }
 

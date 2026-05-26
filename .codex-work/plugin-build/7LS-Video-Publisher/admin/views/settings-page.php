@@ -151,14 +151,22 @@ if (!array_key_exists($active_tab, $tabs)) {
             <?php endif; ?>
 
             <div class="sevenls-vp-actions">
-                <form method="post" class="sevenls-vp-inline-form">
+                <form method="post" class="sevenls-vp-inline-form sevenls-vp-sync-form" data-sync-action="manual_sync" data-sync-label="<?php echo esc_attr__('Update Latest/New Videos', '7ls-video-publisher'); ?>">
                     <?php wp_nonce_field('sevenls_vp_manual_sync'); ?>
                     <button type="submit" name="sevenls_vp_manual_sync" class="sevenls-vp-btn sevenls-vp-btn-primary">
                         <span>⚡</span>
                         <span><?php echo esc_html__('Update Latest/New Videos', '7ls-video-publisher'); ?></span>
                     </button>
                 </form>
+                <form method="post" class="sevenls-vp-inline-form sevenls-vp-sync-form" data-sync-action="force_recent_sync" data-sync-label="<?php echo esc_attr__('Force Latest 2 Days', '7ls-video-publisher'); ?>" data-confirm="<?php echo esc_attr__('This will force re-sync videos from the last 2 days only. Continue?', '7ls-video-publisher'); ?>">
+                    <?php wp_nonce_field('sevenls_vp_force_recent_sync'); ?>
+                    <button type="submit" name="sevenls_vp_force_recent_sync" class="sevenls-vp-btn sevenls-vp-btn-secondary">
+                        <span>🕑</span>
+                        <span><?php echo esc_html__('Force Latest 2 Days', '7ls-video-publisher'); ?></span>
+                    </button>
+                </form>
             </div>
+            <p class="description"><?php esc_html_e('Force only re-syncs videos from the last 2 days based on the current date and time. It does not run a full sync.', '7ls-video-publisher'); ?></p>
         </div>
 
         <div class="sevenls-vp-card">
@@ -191,13 +199,115 @@ if (!array_key_exists($active_tab, $tabs)) {
             <?php endif; ?>
 
             <div class="sevenls-vp-actions">
-                <form method="post" class="sevenls-vp-inline-form">
+                <form method="post" class="sevenls-vp-inline-form sevenls-vp-sync-form" data-sync-action="full_sync" data-sync-label="<?php echo esc_attr__('Full Sync (Force)', '7ls-video-publisher'); ?>" data-confirm="<?php echo esc_attr__('This will force re-sync ALL videos. Continue?', '7ls-video-publisher'); ?>">
                     <?php wp_nonce_field('sevenls_vp_full_sync'); ?>
-                    <button type="submit" name="sevenls_vp_full_sync" class="sevenls-vp-btn sevenls-vp-btn-secondary" onclick="return confirm('<?php esc_attr_e('This will force re-sync ALL videos. Continue?', '7ls-video-publisher'); ?>');">
+                    <button type="submit" name="sevenls_vp_full_sync" class="sevenls-vp-btn sevenls-vp-btn-secondary">
                         <span>🔁</span>
                         <span><?php echo esc_html__('Full Sync (Force)', '7ls-video-publisher'); ?></span>
                     </button>
                 </form>
+            </div>
+        </div>
+
+        <div class="sevenls-vp-sync-modal" data-sync-modal hidden>
+            <div class="sevenls-vp-sync-modal__backdrop" data-sync-modal-close></div>
+            <div class="sevenls-vp-sync-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="sevenls-vp-sync-modal-title">
+                <div class="sevenls-vp-sync-modal__header">
+                    <div>
+                        <p class="sevenls-vp-sync-modal__eyebrow"><?php esc_html_e('Update Progress', '7ls-video-publisher'); ?></p>
+                        <h2 class="sevenls-vp-sync-modal__title" id="sevenls-vp-sync-modal-title" data-sync-modal-title><?php esc_html_e('Preparing sync...', '7ls-video-publisher'); ?></h2>
+                    </div>
+                    <button type="button" class="sevenls-vp-sync-modal__close" data-sync-modal-close aria-label="<?php esc_attr_e('Close modal', '7ls-video-publisher'); ?>" disabled>&times;</button>
+                </div>
+
+                <div class="sevenls-vp-sync-modal__status-row">
+                    <span class="sevenls-vp-sync-modal__status sevenls-vp-sync-modal__status--queued" data-sync-modal-status><?php esc_html_e('Queued', '7ls-video-publisher'); ?></span>
+                    <span class="sevenls-vp-sync-modal__percent" data-sync-modal-percent>0%</span>
+                </div>
+
+                <p class="sevenls-vp-sync-modal__message" data-sync-modal-message><?php esc_html_e('Preparing sync...', '7ls-video-publisher'); ?></p>
+
+                <div class="sevenls-vp-sync-modal__alert sevenls-vp-sync-modal__alert--info" data-sync-modal-alert hidden>
+                    <span data-sync-modal-alert-text><?php esc_html_e('Sync is in progress.', '7ls-video-publisher'); ?></span>
+                </div>
+
+                <div class="sevenls-vp-sync-modal__progress" aria-hidden="true">
+                    <span class="sevenls-vp-sync-modal__progress-bar" data-sync-modal-progress></span>
+                </div>
+
+                <div class="sevenls-vp-sync-modal__stats">
+                    <div class="sevenls-vp-sync-modal__stat">
+                        <span class="sevenls-vp-sync-modal__stat-value" data-sync-modal-completed>0</span>
+                        <span class="sevenls-vp-sync-modal__stat-label"><?php esc_html_e('Completed', '7ls-video-publisher'); ?></span>
+                    </div>
+                    <div class="sevenls-vp-sync-modal__stat">
+                        <span class="sevenls-vp-sync-modal__stat-value" data-sync-modal-created>0</span>
+                        <span class="sevenls-vp-sync-modal__stat-label"><?php esc_html_e('Created', '7ls-video-publisher'); ?></span>
+                    </div>
+                    <div class="sevenls-vp-sync-modal__stat">
+                        <span class="sevenls-vp-sync-modal__stat-value" data-sync-modal-updated>0</span>
+                        <span class="sevenls-vp-sync-modal__stat-label"><?php esc_html_e('Updated', '7ls-video-publisher'); ?></span>
+                    </div>
+                    <div class="sevenls-vp-sync-modal__stat">
+                        <span class="sevenls-vp-sync-modal__stat-value" data-sync-modal-errors>0</span>
+                        <span class="sevenls-vp-sync-modal__stat-label"><?php esc_html_e('Errors', '7ls-video-publisher'); ?></span>
+                    </div>
+                </div>
+
+                <div class="sevenls-vp-sync-modal__meta">
+                    <div class="sevenls-vp-sync-modal__meta-item">
+                        <span class="sevenls-vp-sync-modal__meta-label"><?php esc_html_e('Current Item', '7ls-video-publisher'); ?></span>
+                        <span class="sevenls-vp-sync-modal__meta-value" data-sync-modal-current-item>&mdash;</span>
+                    </div>
+                    <div class="sevenls-vp-sync-modal__meta-item">
+                        <span class="sevenls-vp-sync-modal__meta-label"><?php esc_html_e('Page', '7ls-video-publisher'); ?></span>
+                        <span class="sevenls-vp-sync-modal__meta-value" data-sync-modal-page>&mdash;</span>
+                    </div>
+                    <div class="sevenls-vp-sync-modal__meta-item">
+                        <span class="sevenls-vp-sync-modal__meta-label"><?php esc_html_e('Total Videos', '7ls-video-publisher'); ?></span>
+                        <span class="sevenls-vp-sync-modal__meta-value" data-sync-modal-total>&mdash;</span>
+                    </div>
+                    <div class="sevenls-vp-sync-modal__meta-item">
+                        <span class="sevenls-vp-sync-modal__meta-label"><?php esc_html_e('Mode', '7ls-video-publisher'); ?></span>
+                        <span class="sevenls-vp-sync-modal__meta-value" data-sync-modal-mode>&mdash;</span>
+                    </div>
+                </div>
+
+                <div class="sevenls-vp-sync-modal__lists">
+                    <div class="sevenls-vp-sync-modal__list-card">
+                        <div class="sevenls-vp-sync-modal__list-header">
+                            <h3 class="sevenls-vp-sync-modal__list-title"><?php esc_html_e('Prepared for Update', '7ls-video-publisher'); ?></h3>
+                            <span class="sevenls-vp-sync-modal__list-count" data-sync-modal-pending-count>0</span>
+                        </div>
+                        <ul class="sevenls-vp-sync-modal__list" data-sync-modal-pending-list>
+                            <li class="sevenls-vp-sync-modal__list-empty"><?php esc_html_e('No pending items yet.', '7ls-video-publisher'); ?></li>
+                        </ul>
+                    </div>
+
+                    <div class="sevenls-vp-sync-modal__list-card">
+                        <div class="sevenls-vp-sync-modal__list-header">
+                            <h3 class="sevenls-vp-sync-modal__list-title"><?php esc_html_e('Updated Items', '7ls-video-publisher'); ?></h3>
+                            <span class="sevenls-vp-sync-modal__list-count" data-sync-modal-results-count>0</span>
+                        </div>
+                        <ul class="sevenls-vp-sync-modal__list" data-sync-modal-results-list>
+                            <li class="sevenls-vp-sync-modal__list-empty"><?php esc_html_e('No completed items yet.', '7ls-video-publisher'); ?></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="sevenls-vp-sync-modal__list-card sevenls-vp-sync-modal__list-card--error" data-sync-modal-errors-wrap hidden>
+                    <div class="sevenls-vp-sync-modal__list-header">
+                        <h3 class="sevenls-vp-sync-modal__list-title"><?php esc_html_e('Error Details', '7ls-video-publisher'); ?></h3>
+                        <span class="sevenls-vp-sync-modal__list-count" data-sync-modal-errors-count>0</span>
+                    </div>
+                    <ul class="sevenls-vp-sync-modal__list" data-sync-modal-errors-list>
+                        <li class="sevenls-vp-sync-modal__list-empty"><?php esc_html_e('No errors.', '7ls-video-publisher'); ?></li>
+                    </ul>
+                </div>
+
+                <div class="sevenls-vp-sync-modal__footer">
+                    <button type="button" class="sevenls-vp-btn sevenls-vp-btn-secondary" data-sync-modal-close-button disabled><?php esc_html_e('Close', '7ls-video-publisher'); ?></button>
+                </div>
             </div>
         </div>
     <?php else : ?>

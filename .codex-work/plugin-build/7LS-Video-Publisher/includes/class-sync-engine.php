@@ -14,6 +14,12 @@ class Sync_Engine {
     private ?Mode_Strategy $strategy;
     private array          $settings;
 
+    private const PROGRESS_UPDATE_INTERVAL = 10;
+    private const PROGRESS_PENDING_ITEMS_LIMIT = 8;
+    private const PROGRESS_RECENT_RESULTS_LIMIT = 10;
+    private const SYNC_TIME_LIMIT_SECONDS = 0;
+    private const THUMBNAIL_DOWNLOAD_TIMEOUT = 20;
+
     /**
      * @param Mode_Strategy|null $strategy Strategy to use.
      *                                     Null = auto-detect from options (backward compat).
@@ -27,11 +33,11 @@ class Sync_Engine {
     /**
      * Run sync.
      *
-     * @param array $options Sync options (full_sync, bypass_cache, since).
+     * @param array $options Sync options (full_sync, bypass_cache, since, progress_*).
      * @return array|\WP_Error Sync results or error.
      */
     public function sync(array $options = []): array|\WP_Error {
-        set_time_limit(300);
+        $this->extend_execution_time_limit();
 
         $start_time = microtime(true);
         $processed  = 0;
@@ -42,6 +48,11 @@ class Sync_Engine {
         $full_sync      = !empty($options['full_sync']);
         $bypass_cache   = !empty($options['bypass_cache']) || $full_sync;
         $since_override = $options['since'] ?? null;
+        $progress_job_id = isset($options['progress_job_id']) && is_string($options['progress_job_id'])
+            ? $options['progress_job_id']
+            : null;
+        $progress_min_percent = isset($options['progress_min_percent']) ? (int) $options['progress_min_percent'] : 0;
+        $progress_max_percent = isset($options['progress_max_percent']) ? (int) $options['progress_max_percent'] : 99;
 
         $last_sync = $full_sync ? null : ($since_override ?: get_option('sevenls_vp_last_sync', null));
 
@@ -58,11 +69,16 @@ class Sync_Engine {
         );
 
         // Paginate through API
-        $page     = 1;
-        $has_more = true;
-        $per_page = 50;
+        $page                = 1;
+        $has_more            = true;
+        $per_page            = 50;
+        $total_items         = null;
+        $progress_total_pages = null;
+        $recent_results      = [];
+        $error_items         = [];
 
         while ($has_more) {
+            Sync_Lock::refresh();
             $transient_key = 'sevenls_vp_page_' . $page;
             $cached_data   = $bypass_cache ? false : get_transient($transient_key);
 
@@ -85,15 +101,65 @@ class Sync_Engine {
                 }
             }
 
+            $pagination       = $response['pagination'] ?? [];
             $videos = $response['data'] ?? [];
+            $video_count = count($videos);
+            $page_label = $this->build_page_progress_label($page, $pagination, $video_count, $per_page);
+            $pending_items = $this->build_pending_progress_items($videos, 0);
 
-            foreach ($videos as $video_data) {
+            if (isset($pagination['total']) && $pagination['total'] !== null) {
+                $total_items = max(0, (int) $pagination['total']);
+            }
+
+            $resolved_total_pages = $this->resolve_progress_total_pages($pagination, $video_count, $per_page);
+            if ($resolved_total_pages !== null) {
+                $progress_total_pages = $resolved_total_pages;
+            }
+
+            $this->update_sync_progress($progress_job_id, [
+                'status'       => 'running',
+                'message'      => sprintf(__('Processing %s...', '7ls-video-publisher'), $page_label),
+                'percent'      => $this->build_progress_percent(
+                    handled: $processed + $errors,
+                    total_items: $total_items,
+                    current_page: $page,
+                    total_pages: $progress_total_pages,
+                    current_page_position: 0,
+                    current_page_total: $video_count,
+                    min_percent: $progress_min_percent,
+                    max_percent: $progress_max_percent
+                ),
+                'processed'    => $processed,
+                'handled'      => $processed + $errors,
+                'created'      => $created,
+                'updated'      => $updated,
+                'errors'       => $errors,
+                'completed_items' => $processed,
+                'current_page' => $page,
+                'total_pages'  => $progress_total_pages,
+                'total_items'  => $total_items,
+                'current_item' => '',
+                'pending_items' => $pending_items,
+                'recent_results' => $recent_results,
+                'error_items' => $error_items,
+            ]);
+
+            foreach ($videos as $index => $video_data) {
+                Sync_Lock::refresh();
+                $item_label = $this->build_progress_video_label($video_data);
                 $result = $this->process_video($video_data);
 
                 if (is_wp_error($result)) {
                     $errors++;
                     $vid_id = $video_data['id'] ?? $video_data['video_id'] ?? 'unknown';
                     Logger::log("Failed to process video {$vid_id}: {$result->get_error_message()}", 'error');
+                    $entry = [
+                        'title'  => $item_label,
+                        'status' => 'error',
+                        'detail' => $result->get_error_message(),
+                    ];
+                    $recent_results = $this->append_progress_entry($recent_results, $entry);
+                    $error_items = $this->append_progress_entry($error_items, $entry, 6);
                 } else {
                     $processed++;
                     if ($result['action'] === 'created') {
@@ -101,11 +167,54 @@ class Sync_Engine {
                     } else {
                         $updated++;
                     }
+
+                    $recent_results = $this->append_progress_entry($recent_results, [
+                        'title'  => $item_label,
+                        'status' => $result['action'],
+                        'detail' => $result['action'] === 'created'
+                            ? __('New video created successfully.', '7ls-video-publisher')
+                            : __('Existing video updated successfully.', '7ls-video-publisher'),
+                    ]);
+                }
+
+                $handled = $processed + $errors;
+                $is_last_video_on_page = $index === ($video_count - 1);
+                $pending_items = $this->build_pending_progress_items($videos, $index + 1);
+
+                if ($progress_job_id && ($handled % self::PROGRESS_UPDATE_INTERVAL === 0 || $is_last_video_on_page || $video_count <= self::PROGRESS_PENDING_ITEMS_LIMIT)) {
+                    $this->update_sync_progress($progress_job_id, [
+                        'status'       => 'running',
+                        'message'      => is_wp_error($result)
+                            ? sprintf(__('Failed to update "%1$s" on %2$s.', '7ls-video-publisher'), $item_label, $page_label)
+                            : sprintf(__('Updated "%1$s" on %2$s.', '7ls-video-publisher'), $item_label, $page_label),
+                        'percent'      => $this->build_progress_percent(
+                            handled: $handled,
+                            total_items: $total_items,
+                            current_page: $page,
+                            total_pages: $progress_total_pages,
+                            current_page_position: $index + 1,
+                            current_page_total: $video_count,
+                            min_percent: $progress_min_percent,
+                            max_percent: $progress_max_percent
+                        ),
+                        'processed'    => $processed,
+                        'handled'      => $handled,
+                        'created'      => $created,
+                        'updated'      => $updated,
+                        'errors'       => $errors,
+                        'completed_items' => $processed,
+                        'current_page' => $page,
+                        'total_pages'  => $progress_total_pages,
+                        'total_items'  => $total_items,
+                        'current_item' => $item_label,
+                        'pending_items' => $pending_items,
+                        'recent_results' => $recent_results,
+                        'error_items' => $error_items,
+                    ]);
                 }
             }
 
             // Pagination logic
-            $pagination = $response['pagination'] ?? [];
             $has_more   = false;
             $next_page  = isset($pagination['next_page']) ? (int) $pagination['next_page'] : null;
 
@@ -507,11 +616,34 @@ class Sync_Engine {
         require_once ABSPATH . 'wp-admin/includes/file.php';
         require_once ABSPATH . 'wp-admin/includes/image.php';
 
-        $attachment_id = media_sideload_image($image_url, $post_id, null, 'id');
+        $timeout = max(1, self::THUMBNAIL_DOWNLOAD_TIMEOUT);
+        $request_args_filter = static function (array $args, string $url) use ($timeout): array {
+            $args['timeout'] = $timeout;
 
-        if (!is_wp_error($attachment_id)) {
-            set_post_thumbnail($post_id, $attachment_id);
+            return $args;
+        };
+
+        add_filter('http_request_args', $request_args_filter, 10, 2);
+
+        try {
+            $attachment_id = media_sideload_image($image_url, $post_id, null, 'id');
+        } finally {
+            remove_filter('http_request_args', $request_args_filter, 10);
         }
+
+        if (is_wp_error($attachment_id)) {
+            Logger::log(
+                sprintf(
+                    'Thumbnail sideload skipped for post %1$d: %2$s',
+                    $post_id,
+                    $attachment_id->get_error_message()
+                ),
+                'warning'
+            );
+            return;
+        }
+
+        set_post_thumbnail($post_id, $attachment_id);
     }
 
     private function set_actor_terms(int $post_id, array $actors, array $tax_config): void {
@@ -577,6 +709,154 @@ class Sync_Engine {
         }
 
         return (int) $created['term_id'];
+    }
+
+    private function update_sync_progress(?string $progress_job_id, array $state): void {
+        if ($progress_job_id === null || $progress_job_id === '') {
+            return;
+        }
+
+        Sync_Lock::update_progress($progress_job_id, $state);
+    }
+
+    private function build_progress_video_label(array $video_data): string {
+        $title = '';
+
+        if (isset($video_data['video']) && is_array($video_data['video'])) {
+            $video_data = $video_data['video'];
+        }
+
+        foreach (['title', 'name'] as $key) {
+            if (!empty($video_data[$key]) && is_string($video_data[$key])) {
+                $title = sanitize_text_field($video_data[$key]);
+                break;
+            }
+        }
+
+        if ($title !== '') {
+            return $title;
+        }
+
+        $external_id = $video_data['id'] ?? $video_data['video_id'] ?? $video_data['videoId'] ?? '';
+        if (is_scalar($external_id) && $external_id !== '') {
+            return sprintf(__('Video %s', '7ls-video-publisher'), sanitize_text_field((string) $external_id));
+        }
+
+        return __('Untitled video', '7ls-video-publisher');
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function build_pending_progress_items(array $videos, int $start_index): array {
+        $items = [];
+        $count = count($videos);
+
+        for ($index = max(0, $start_index); $index < $count; $index++) {
+            if (!is_array($videos[$index])) {
+                continue;
+            }
+
+            $items[] = $this->build_progress_video_label($videos[$index]);
+
+            if (count($items) >= self::PROGRESS_PENDING_ITEMS_LIMIT) {
+                break;
+            }
+        }
+
+        return $items;
+    }
+
+    /**
+     * @param array<int, array{title: string, status: string, detail: string}> $entries
+     * @param array{title: string, status: string, detail: string} $entry
+     * @return array<int, array{title: string, status: string, detail: string}>
+     */
+    private function append_progress_entry(array $entries, array $entry, int $limit = self::PROGRESS_RECENT_RESULTS_LIMIT): array {
+        array_unshift($entries, $entry);
+
+        if (count($entries) > $limit) {
+            $entries = array_slice($entries, 0, $limit);
+        }
+
+        return $entries;
+    }
+
+    private function build_page_progress_label(int $page, array $pagination, int $video_count, int $per_page): string {
+        $total_pages = $this->resolve_progress_total_pages($pagination, $video_count, $per_page);
+
+        if ($total_pages !== null && $total_pages > 0) {
+            return sprintf(__('page %1$d of %2$d', '7ls-video-publisher'), $page, $total_pages);
+        }
+
+        return sprintf(__('page %d', '7ls-video-publisher'), $page);
+    }
+
+    private function resolve_progress_total_pages(array $pagination, int $video_count, int $per_page): ?int {
+        $total_pages = isset($pagination['total_pages']) && $pagination['total_pages'] !== null
+            ? (int) $pagination['total_pages']
+            : null;
+        $has_more = $pagination['has_more'] ?? null;
+
+        if ($total_pages !== null && $total_pages > 1) {
+            return $total_pages;
+        }
+
+        if ($total_pages === 1 && ($has_more === false || $video_count < $per_page)) {
+            return 1;
+        }
+
+        return null;
+    }
+
+    private function build_progress_percent(
+        int $handled,
+        ?int $total_items,
+        int $current_page,
+        ?int $total_pages,
+        int $current_page_position,
+        int $current_page_total,
+        int $min_percent,
+        int $max_percent
+    ): int {
+        $raw_percent = 0;
+
+        if ($total_items !== null && $total_items > 0) {
+            $raw_percent = (int) floor((min($handled, $total_items) / $total_items) * 100);
+        } elseif ($total_pages !== null && $total_pages > 0) {
+            $page_fraction = $current_page_total > 0
+                ? min(1, $current_page_position / $current_page_total)
+                : 0;
+
+            $raw_percent = (int) floor((((max(1, $current_page) - 1) + $page_fraction) / $total_pages) * 100);
+        } elseif ($handled > 0) {
+            $raw_percent = min(95, 10 + ((int) floor(log($handled + 1, 2) * 10)));
+        }
+
+        return $this->scale_progress_percent($raw_percent, $min_percent, $max_percent);
+    }
+
+    private function scale_progress_percent(int $raw_percent, int $min_percent, int $max_percent): int {
+        $raw_percent = max(0, min(100, $raw_percent));
+        $min_percent = max(0, min(100, $min_percent));
+        $max_percent = max($min_percent, min(100, $max_percent));
+
+        if ($max_percent === $min_percent) {
+            return $max_percent;
+        }
+
+        $scaled = $min_percent + (($raw_percent / 100) * ($max_percent - $min_percent));
+
+        return (int) floor($scaled);
+    }
+
+    private function extend_execution_time_limit(): void {
+        if (!function_exists('set_time_limit')) {
+            return;
+        }
+
+        $time_limit = (int) apply_filters('sevenls_vp_sync_time_limit', self::SYNC_TIME_LIMIT_SECONDS);
+        @set_time_limit(max(0, $time_limit));
     }
 
     /**

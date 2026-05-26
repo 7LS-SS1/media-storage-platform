@@ -265,12 +265,16 @@ class Shortcodes {
         }
 
         $enqueued = true;
+        $style_path   = SEVENLS_VP_PLUGIN_DIR . 'assets/video-player.css';
+        $script_path  = SEVENLS_VP_PLUGIN_DIR . 'assets/video-player.js';
+        $style_ver    = file_exists($style_path) ? (string) filemtime($style_path) : SEVENLS_VP_VERSION;
+        $script_ver   = file_exists($script_path) ? (string) filemtime($script_path) : SEVENLS_VP_VERSION;
 
         wp_enqueue_style(
             'sevenls-vp-video-player',
             SEVENLS_VP_PLUGIN_URL . 'assets/video-player.css',
             [],
-            SEVENLS_VP_VERSION
+            $style_ver
         );
 
         wp_enqueue_script(
@@ -285,7 +289,7 @@ class Shortcodes {
             'sevenls-vp-video-player',
             SEVENLS_VP_PLUGIN_URL . 'assets/video-player.js',
             ['sevenls-vp-hls'],
-            SEVENLS_VP_VERSION,
+            $script_ver,
             true
         );
     }

@@ -13,6 +13,7 @@ class API_Client {
     private string $base_url;
     private string $api_key;
     private string $project_id;
+    private bool $allow_self_signed_ssl;
 
     /**
      * @param Mode_Strategy|null $strategy Strategy to use for endpoints/params.
@@ -25,6 +26,7 @@ class API_Client {
         $this->base_url   = rtrim($settings['api_base_url'] ?? '', '/');
         $this->api_key    = $settings['api_key'] ?? '';
         $this->project_id = $settings['project_id'] ?? '';
+        $this->allow_self_signed_ssl = !empty($settings['allow_self_signed_ssl']);
     }
 
     /**
@@ -68,12 +70,12 @@ class API_Client {
 
         $url = $this->build_list_url($query_params);
 
-        $response = wp_remote_get($url, [
-            'headers' => $this->get_headers(),
-            'timeout' => 30,
-        ]);
+        $response = wp_remote_get($url, $this->build_request_args(
+            headers: $this->get_headers(),
+            timeout: 30
+        ));
 
-        return $this->handle_response($response, 'list');
+        return $this->handle_response($response, 'list', $url);
     }
 
     /**
@@ -89,12 +91,12 @@ class API_Client {
 
         $url = $this->build_single_url($video_id);
 
-        $response = wp_remote_get($url, [
-            'headers' => $this->get_headers(),
-            'timeout' => 15,
-        ]);
+        $response = wp_remote_get($url, $this->build_request_args(
+            headers: $this->get_headers(),
+            timeout: 15
+        ));
 
-        return $this->handle_response($response, 'single');
+        return $this->handle_response($response, 'single', $url);
     }
 
     /**
@@ -126,13 +128,13 @@ class API_Client {
         $url  = $this->build_plugin_sync_url();
         $body = wp_json_encode($payload);
 
-        $response = wp_remote_post($url, [
-            'headers' => array_merge($this->get_headers(), [
+        $response = wp_remote_post($url, $this->build_request_args(
+            headers: array_merge($this->get_headers(), [
                 'Content-Type' => 'application/json',
             ]),
-            'body'    => $body,
-            'timeout' => 30,
-        ]);
+            timeout: 30,
+            body: $body
+        ));
 
         if (is_wp_error($response)) {
             Logger::log('API sync request failed: ' . $response->get_error_message(), 'error');
@@ -148,9 +150,8 @@ class API_Client {
             return new \WP_Error('api_error', $error_msg);
         }
 
-        $data = json_decode($body, true);
-
-        if (json_last_error() === JSON_ERROR_NONE && is_array($data)) {
+        $data = $this->decode_json_body($body);
+        if ($data !== null) {
             return $data;
         }
 
@@ -178,6 +179,29 @@ class API_Client {
     }
 
     /**
+     * Build shared HTTP request arguments.
+     *
+     * @param array<string, string> $headers
+     * @return array<string, mixed>
+     */
+    private function build_request_args(array $headers, int $timeout, ?string $body = null): array {
+        $args = [
+            'headers' => $headers,
+            'timeout' => $timeout,
+        ];
+
+        if ($body !== null) {
+            $args['body'] = $body;
+        }
+
+        if ($this->allow_self_signed_ssl) {
+            $args['sslverify'] = false;
+        }
+
+        return $args;
+    }
+
+    /**
      * Provide site-origin context for server-to-server requests.
      * This keeps domain-bound tokens compatible with WordPress requests
      * that do not automatically send browser Origin/Referer headers.
@@ -188,16 +212,19 @@ class API_Client {
         $site_url = trailingslashit((string) home_url('/'));
         $origin   = $this->build_site_origin($site_url);
 
-        if ($origin === null) {
-            return [];
+        $headers = [
+            'Referer'           => $site_url,
+            'X-SevenLS-Origin'  => $site_url,
+            'X-SevenLS-Referer' => $site_url,
+            'X-Sevenls-Origin'  => $site_url,
+            'X-Sevenls-Referer' => $site_url,
+        ];
+
+        if ($origin !== null) {
+            $headers['Origin'] = $origin;
         }
 
-        return [
-            'Origin'            => $origin,
-            'Referer'           => $site_url,
-            'X-SevenLS-Origin'  => $origin,
-            'X-SevenLS-Referer' => $site_url,
-        ];
+        return $headers;
     }
 
     private function build_site_origin(string $site_url): ?string {
@@ -220,7 +247,7 @@ class API_Client {
     /**
      * Unified response handler with semantic error codes.
      */
-    private function handle_response($response, string $type = 'list'): array|\WP_Error {
+    private function handle_response($response, string $type = 'list', string $request_url = ''): array|\WP_Error {
         if (is_wp_error($response)) {
             Logger::log('API request failed: ' . $response->get_error_message(), 'error');
             return $response;
@@ -233,6 +260,21 @@ class API_Client {
         if ($status_code === 401 || $status_code === 403) {
             $msg = sprintf(__('Authentication failed (HTTP %d)', '7ls-video-publisher'), $status_code);
             Logger::log($msg, 'error');
+
+            if ($request_url !== '') {
+                Logger::log('Auth request URL: ' . $request_url, 'error');
+            }
+
+            $site_url = trailingslashit((string) home_url('/'));
+            if ($site_url !== '') {
+                Logger::log('Auth request site URL: ' . $site_url, 'error');
+            }
+
+            $error_body = $this->extract_error_message($body);
+            if ($error_body !== '') {
+                Logger::log('Auth response body: ' . $error_body, 'error');
+            }
+
             return new \WP_Error('unauthorized', $msg);
         }
         if ($status_code === 404) {
@@ -243,8 +285,22 @@ class API_Client {
             return new \WP_Error('rate_limited', __('Rate limit exceeded. Please try again later.', '7ls-video-publisher'));
         }
         if ($status_code >= 500) {
+            $error_body = $this->extract_error_message($body);
             $msg = sprintf(__('Server error (HTTP %d)', '7ls-video-publisher'), $status_code);
+            if ($error_body !== '') {
+                $msg .= ': ' . $error_body;
+            }
+
             Logger::log($msg, 'error');
+
+            if ($request_url !== '') {
+                Logger::log('Server error request URL: ' . $request_url, 'error');
+            }
+
+            if ($error_body !== '') {
+                Logger::log('Server error response body: ' . $error_body, 'error');
+            }
+
             return new \WP_Error('server_error', $msg);
         }
         if ($status_code !== 200) {
@@ -253,9 +309,15 @@ class API_Client {
             return new \WP_Error('http_error', $msg);
         }
 
-        $data = json_decode($body, true);
+        $data = $this->decode_json_body($body);
 
-        if (json_last_error() !== JSON_ERROR_NONE) {
+        if ($data === null) {
+            $this->log_json_parse_failure(
+                body: $body,
+                request_url: $request_url,
+                content_type: $this->normalize_header_value(wp_remote_retrieve_header($response, 'content-type')),
+                response_type: $type
+            );
             return new \WP_Error('json_error', __('Failed to parse API response', '7ls-video-publisher'));
         }
 
@@ -275,7 +337,7 @@ class API_Client {
 
     private function build_single_url(string $video_id): string {
         if ($this->strategy) {
-            return $this->base_url . $this->strategy->get_single_video_endpoint($video_id);
+            return $this->build_strategy_url($this->strategy->get_single_video_endpoint($video_id));
         }
 
         return $this->build_videos_endpoint() . '/' . urlencode($video_id);
@@ -283,7 +345,7 @@ class API_Client {
 
     private function build_videos_endpoint(): string {
         if ($this->strategy) {
-            return $this->base_url . $this->strategy->get_videos_endpoint();
+            return $this->build_strategy_url($this->strategy->get_videos_endpoint());
         }
 
         // Legacy fallback
@@ -299,7 +361,7 @@ class API_Client {
 
     private function build_plugin_sync_url(): string {
         if ($this->strategy) {
-            return $this->base_url . $this->strategy->get_sync_trigger_endpoint();
+            return $this->build_strategy_url($this->strategy->get_sync_trigger_endpoint());
         }
 
         // Legacy fallback
@@ -328,6 +390,225 @@ class API_Client {
         $last    = end($parts);
 
         return strtolower($last) === strtolower($segment);
+    }
+
+    private function build_strategy_url(string $endpoint): string {
+        if (preg_match('#^https?://#i', $endpoint) === 1) {
+            return $endpoint;
+        }
+
+        $base = rtrim($this->base_url, '/');
+        if ($base === '') {
+            return $endpoint;
+        }
+
+        $endpoint = '/' . ltrim($endpoint, '/');
+        $base_path = wp_parse_url($base, PHP_URL_PATH);
+
+        if (is_string($base_path) && $base_path !== '' && $base_path !== '/') {
+            $normalized_base_path = '/' . trim($base_path, '/');
+
+            if ($endpoint === $normalized_base_path || str_starts_with($endpoint, $normalized_base_path . '/')) {
+                $origin = $this->extract_url_origin($base);
+                if ($origin !== null) {
+                    return $origin . $endpoint;
+                }
+            }
+        }
+
+        return $base . $endpoint;
+    }
+
+    private function extract_url_origin(string $url): ?string {
+        $scheme = wp_parse_url($url, PHP_URL_SCHEME);
+        $host   = wp_parse_url($url, PHP_URL_HOST);
+        $port   = wp_parse_url($url, PHP_URL_PORT);
+
+        if (!is_string($scheme) || $scheme === '' || !is_string($host) || $host === '') {
+            return null;
+        }
+
+        $origin = $scheme . '://' . $host;
+        if ($port !== null && $port !== '') {
+            $origin .= ':' . $port;
+        }
+
+        return $origin;
+    }
+
+    private function extract_error_message(string $body): string {
+        $body = trim($body);
+        if ($body === '') {
+            return '';
+        }
+
+        $decoded = $this->decode_json_body($body);
+        if ($decoded !== null) {
+            if (!empty($decoded['error']) && is_string($decoded['error'])) {
+                return $decoded['error'];
+            }
+            if (!empty($decoded['message']) && is_string($decoded['message'])) {
+                return $decoded['message'];
+            }
+        }
+
+        $message = wp_strip_all_tags($body);
+
+        if (function_exists('mb_substr')) {
+            return mb_substr($message, 0, 200);
+        }
+
+        return substr($message, 0, 200);
+    }
+
+    private function decode_json_body(string $body): ?array {
+        foreach ($this->build_json_decode_candidates($body) as $candidate) {
+            $decoded = json_decode($candidate, true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return null;
+    }
+
+    private function build_json_decode_candidates(string $body): array {
+        $body = $this->normalize_response_body($body);
+        if ($body === '') {
+            return [];
+        }
+
+        $candidates = [$body];
+        $trimmed    = trim($body);
+
+        if ($trimmed !== '' && $trimmed !== $body) {
+            $candidates[] = $trimmed;
+        }
+
+        $this->append_json_fragment_candidates($candidates, $trimmed, '{', '}');
+        $this->append_json_fragment_candidates($candidates, $trimmed, '[', ']');
+
+        return $candidates;
+    }
+
+    private function normalize_response_body(string $body): string {
+        if (strncmp($body, "\xEF\xBB\xBF", 3) === 0) {
+            $body = substr($body, 3);
+        }
+
+        while ($body !== '' && ord($body[0]) < 32) {
+            $body = substr($body, 1);
+        }
+
+        return $body;
+    }
+
+    private function append_json_fragment_candidates(
+        array &$candidates,
+        string $body,
+        string $opening,
+        string $closing
+    ): void {
+        $start_positions = $this->find_character_positions($body, $opening);
+        $end_positions   = array_reverse($this->find_character_positions($body, $closing));
+
+        $fragments_added = 0;
+
+        foreach ($start_positions as $start) {
+            foreach ($end_positions as $end) {
+                if ($end <= $start) {
+                    continue;
+                }
+
+                $fragment = substr($body, $start, $end - $start + 1);
+                if ($fragment === '' || in_array($fragment, $candidates, true)) {
+                    continue;
+                }
+
+                $candidates[] = $fragment;
+                $fragments_added++;
+
+                if ($fragments_added >= 12) {
+                    return;
+                }
+            }
+        }
+    }
+
+    private function find_character_positions(string $body, string $character): array {
+        $positions = [];
+        $offset    = 0;
+
+        while (($position = strpos($body, $character, $offset)) !== false) {
+            $positions[] = $position;
+            $offset      = $position + 1;
+
+            if (count($positions) >= 12) {
+                break;
+            }
+        }
+
+        return $positions;
+    }
+
+    private function log_json_parse_failure(
+        string $body,
+        string $request_url,
+        string $content_type = '',
+        string $response_type = 'list'
+    ): void {
+        $message = sprintf(__('Failed to parse %s API response as JSON', '7ls-video-publisher'), $response_type);
+
+        if ($content_type !== '') {
+            $message .= ' (' . $content_type . ')';
+        }
+
+        Logger::log($message, 'error');
+
+        if ($request_url !== '') {
+            Logger::log('JSON parse request URL: ' . $request_url, 'error');
+        }
+
+        $preview = $this->build_response_preview($body);
+        if ($preview !== '') {
+            Logger::log('JSON parse response preview: ' . $preview, 'error');
+        }
+    }
+
+    private function build_response_preview(string $body): string {
+        $body = trim($body);
+        if ($body === '') {
+            return '[empty response body]';
+        }
+
+        $preview = preg_replace('/\s+/', ' ', $body);
+        if (!is_string($preview) || $preview === '') {
+            $preview = $body;
+        }
+
+        if (function_exists('mb_substr')) {
+            return mb_substr($preview, 0, 300);
+        }
+
+        return substr($preview, 0, 300);
+    }
+
+    private function normalize_header_value(mixed $value): string {
+        if (is_string($value)) {
+            return trim($value);
+        }
+
+        if (is_array($value)) {
+            $value = implode(', ', array_map(
+                static fn ($item): string => is_scalar($item) ? (string) $item : '',
+                $value
+            ));
+
+            return trim($value);
+        }
+
+        return '';
     }
 
     // ─── Response normalisers ───────────────────────────────

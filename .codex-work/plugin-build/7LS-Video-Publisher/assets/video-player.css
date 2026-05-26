@@ -5,6 +5,12 @@
     background: var(--sevenls-vp-bg, #000000);
     border-radius: var(--sevenls-vp-radius, 0);
     box-shadow: var(--sevenls-vp-shadow, none);
+    --sevenls-vp-accent: #ff6958;
+    --sevenls-vp-accent-strong: #ff3f2f;
+    --sevenls-vp-surface: rgba(10, 16, 24, 0.58);
+    --sevenls-vp-surface-strong: rgba(7, 12, 18, 0.8);
+    --sevenls-vp-border: rgba(255, 255, 255, 0.12);
+    --sevenls-vp-text-muted: rgba(255, 255, 255, 0.78);
     overflow: hidden;
     cursor: pointer;
     -webkit-user-select: none;
@@ -85,13 +91,15 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.55);
+    background: linear-gradient(180deg, rgba(25, 35, 52, 0.72), rgba(5, 8, 14, 0.72));
+    border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 50%;
     color: #ffffff;
     cursor: pointer;
     z-index: 10;
     opacity: 0;
     pointer-events: none;
+    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.36);
     transition: opacity 0.25s ease, transform 0.25s ease;
     -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
@@ -104,7 +112,7 @@
 
 .sevenls-vp-play-overlay:hover {
     transform: translate(-50%, -50%) scale(1.1);
-    background: rgba(0, 0, 0, 0.7);
+    background: linear-gradient(180deg, rgba(31, 43, 62, 0.82), rgba(10, 14, 22, 0.84));
 }
 
 .sevenls-vp-play-overlay svg {
@@ -149,16 +157,18 @@
     bottom: 0;
     left: 0;
     right: 0;
-    padding: 0 12px 10px;
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.75));
+    padding: 0 14px 14px;
+    background: linear-gradient(180deg, rgba(3, 5, 10, 0) 0%, rgba(3, 5, 10, 0.18) 22%, rgba(3, 5, 10, 0.84) 100%);
     z-index: 15;
     opacity: 0;
-    transition: opacity 0.3s ease;
+    transform: translateY(10px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
     pointer-events: none;
 }
 
 .sevenls-vp-controls-visible .sevenls-vp-controls {
     opacity: 1;
+    transform: translateY(0);
     pointer-events: auto;
 }
 
@@ -166,17 +176,19 @@
 
 .sevenls-vp-progress {
     position: relative;
-    height: 4px;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 2px;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.16);
+    border-radius: 999px;
     cursor: pointer;
-    margin-bottom: 8px;
+    margin-bottom: 12px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
     transition: height 0.15s ease;
+    touch-action: none;
 }
 
 .sevenls-vp-progress:hover,
 .sevenls-vp-progress:active {
-    height: 6px;
+    height: 7px;
 }
 
 .sevenls-vp-progress-buffer {
@@ -185,8 +197,8 @@
     left: 0;
     height: 100%;
     width: 0;
-    background: rgba(255, 255, 255, 0.3);
-    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.28);
+    border-radius: 999px;
     pointer-events: none;
 }
 
@@ -196,21 +208,22 @@
     left: 0;
     height: 100%;
     width: 0;
-    background: #ff4444;
-    border-radius: 2px;
+    background: linear-gradient(90deg, var(--sevenls-vp-accent), var(--sevenls-vp-accent-strong));
+    border-radius: 999px;
     pointer-events: none;
 }
 
 .sevenls-vp-progress-handle {
     position: absolute;
-    right: -6px;
+    right: -7px;
     top: 50%;
     transform: translateY(-50%) scale(0);
-    width: 12px;
-    height: 12px;
-    background: #ff4444;
+    width: 14px;
+    height: 14px;
+    background: #ffffff;
     border-radius: 50%;
     pointer-events: none;
+    box-shadow: 0 0 0 4px rgba(255, 105, 88, 0.22), 0 8px 20px rgba(0, 0, 0, 0.3);
     transition: transform 0.15s ease;
 }
 
@@ -225,19 +238,21 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: 12px;
 }
 
 .sevenls-vp-controls-left {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 10px;
+    min-width: 0;
 }
 
 .sevenls-vp-controls-right {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 10px;
+    margin-left: auto;
 }
 
 /* ─── Control Buttons ────────────────────────────────────── */
@@ -246,25 +261,75 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
     padding: 0;
     border: none;
-    background: transparent;
+    background: rgba(255, 255, 255, 0.05);
     color: #ffffff;
     cursor: pointer;
-    border-radius: 4px;
-    transition: background 0.15s ease;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease, opacity 0.18s ease;
     flex-shrink: 0;
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
 }
 
 .sevenls-vp-btn:hover {
-    background: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.1);
+    transform: translateY(-1px);
+}
+
+.sevenls-vp-btn:active {
+    transform: scale(0.98);
+}
+
+.sevenls-vp-btn:focus-visible,
+.sevenls-vp-progress:focus-visible,
+.sevenls-vp-volume-slider:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.9);
+    outline-offset: 2px;
 }
 
 .sevenls-vp-btn svg {
-    width: 22px;
-    height: 22px;
+    width: 20px;
+    height: 20px;
+}
+
+.sevenls-vp-seek-btn svg {
+    width: 24px;
+    height: 24px;
+}
+
+.sevenls-vp-transport {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px;
+    border-radius: 999px;
+    background: var(--sevenls-vp-surface);
+    border: 1px solid var(--sevenls-vp-border);
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.24);
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
+}
+
+.sevenls-vp-play-btn {
+    background: linear-gradient(135deg, var(--sevenls-vp-accent), var(--sevenls-vp-accent-strong));
+    box-shadow: 0 10px 24px rgba(255, 63, 47, 0.3);
+}
+
+.sevenls-vp-play-btn:hover {
+    background: linear-gradient(135deg, #ff786a, #ff4d3c);
+    border-color: rgba(255, 255, 255, 0.18);
+}
+
+.sevenls-vp-fullscreen-btn,
+.sevenls-vp-mute-btn,
+.sevenls-vp-seek-btn {
+    background: rgba(255, 255, 255, 0.04);
 }
 
 /* ─── Volume ─────────────────────────────────────────────── */
@@ -272,24 +337,33 @@
 .sevenls-vp-volume {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 8px;
+    padding: 4px 6px 4px 4px;
+    border-radius: 999px;
+    background: var(--sevenls-vp-surface);
+    border: 1px solid var(--sevenls-vp-border);
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.24);
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
 }
 
 .sevenls-vp-volume-slider {
-    width: 70px;
-    height: 24px;
+    width: 88px;
+    height: 28px;
     display: flex;
     align-items: center;
     cursor: pointer;
-    padding: 0 2px;
+    padding: 0 4px 0 2px;
+    touch-action: none;
 }
 
 .sevenls-vp-volume-track {
     position: relative;
     width: 100%;
-    height: 4px;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 2px;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    overflow: hidden;
 }
 
 .sevenls-vp-volume-fill {
@@ -298,21 +372,30 @@
     left: 0;
     height: 100%;
     width: 100%;
-    background: #ffffff;
-    border-radius: 2px;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0.82));
+    border-radius: 999px;
     pointer-events: none;
 }
 
 /* ─── Time Display ───────────────────────────────────────── */
 
 .sevenls-vp-time {
+    display: flex;
+    align-items: center;
+    min-height: 40px;
+    padding: 0 14px;
     font-size: 12px;
-    color: #ffffff;
-    font-family: monospace, sans-serif;
+    color: var(--sevenls-vp-text-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     white-space: nowrap;
     line-height: 1;
-    padding: 0 4px;
     flex-shrink: 0;
+    border-radius: 999px;
+    background: var(--sevenls-vp-surface);
+    border: 1px solid var(--sevenls-vp-border);
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.22);
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
 }
 
 /* ─── Hide cursor when controls hidden ───────────────────── */
@@ -323,7 +406,11 @@
 
 /* ─── Mobile Responsive ──────────────────────────────────── */
 
-@media (max-width: 640px) {
+@media (max-width: 800px) {
+	.sevenls-video-player video, .sevenls-video-player iframe {
+		height: 360px;
+	}
+	
     .sevenls-vp-play-overlay {
         width: 56px;
         height: 56px;
@@ -344,16 +431,44 @@
         height: 24px;
     }
 
+    .sevenls-vp-controls {
+        padding: 0 10px 10px;
+    }
+
+    .sevenls-vp-controls-row {
+        gap: 8px;
+    }
+
+    .sevenls-vp-controls-left,
+    .sevenls-vp-controls-right {
+        gap: 8px;
+    }
+
+    .sevenls-vp-transport {
+        gap: 4px;
+        padding: 3px;
+    }
+
     .sevenls-vp-volume-slider {
         display: none;
     }
 
+    .sevenls-vp-volume {
+        padding: 0;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+    }
+
     .sevenls-vp-time {
         font-size: 11px;
+        min-height: 38px;
+        padding: 0 10px;
     }
 
     .sevenls-vp-progress {
         height: 5px;
+        margin-bottom: 10px;
     }
 
     .sevenls-vp-progress-handle {
@@ -364,6 +479,37 @@
     }
 }
 
+@media (max-width: 500px) {
+	.sevenls-video-player video, .sevenls-video-player iframe {
+		height: 250px;
+	}
+	
+    .sevenls-vp-controls {
+        padding: 0 8px 8px;
+    }
+
+    .sevenls-vp-controls-left,
+    .sevenls-vp-controls-right {
+        gap: 6px;
+    }
+
+    .sevenls-vp-btn {
+        width: 40px;
+        height: 40px;
+    }
+
+    .sevenls-vp-btn svg {
+        width: 22px;
+        height: 22px;
+    }
+
+    .sevenls-vp-time {
+        font-size: 10px;
+        min-height: 34px;
+        padding: 0 8px;
+    }
+}
+
 @media (hover: none) and (pointer: coarse) {
     .sevenls-vp-progress {
         height: 5px;
@@ -371,5 +517,9 @@
 
     .sevenls-vp-progress-handle {
         transform: translateY(-50%) scale(1);
+    }
+
+    .sevenls-vp-btn:hover {
+        transform: none;
     }
 }

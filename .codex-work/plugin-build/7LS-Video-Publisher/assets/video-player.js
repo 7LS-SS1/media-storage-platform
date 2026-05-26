@@ -2,6 +2,7 @@
     'use strict';
 
     var HIDE_DELAY = 3000;
+    var SEEK_STEP = 10;
     var RAF_ID_KEY = '_sevenlsRafId';
 
     // ─── HLS Setup ──────────────────────────────────────────
@@ -92,6 +93,8 @@
     var icons = {
         play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
         pause: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>',
+        seekBack: '<svg viewBox="0 0 24 24" fill="none"><path d="M10 8 6.25 12 10 16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 6.85a8 8 0 1 0 1.35 7.89" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><text x="12.2" y="15.15" fill="currentColor" font-size="6.1" font-weight="700" text-anchor="middle">10</text></svg>',
+        seekForward: '<svg viewBox="0 0 24 24" fill="none"><path d="m14 8 3.75 4L14 16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 6.85a8 8 0 1 1-1.35 7.89" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><text x="11.8" y="15.15" fill="currentColor" font-size="6.1" font-weight="700" text-anchor="middle">10</text></svg>',
         volumeHigh: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>',
         volumeMute: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>',
         fullscreen: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>',
@@ -142,9 +145,6 @@
         progressHandle.className = 'sevenls-vp-progress-handle';
         progressBar.appendChild(progressHandle);
 
-        controls.appendChild(progressWrap);
-
-        // Bottom row
         var bottomRow = document.createElement('div');
         bottomRow.className = 'sevenls-vp-controls-row';
 
@@ -152,12 +152,31 @@
         var leftGroup = document.createElement('div');
         leftGroup.className = 'sevenls-vp-controls-left';
 
+        var transportGroup = document.createElement('div');
+        transportGroup.className = 'sevenls-vp-transport';
+
+        var seekBackBtn = document.createElement('button');
+        seekBackBtn.className = 'sevenls-vp-btn sevenls-vp-seek-btn sevenls-vp-seek-back-btn';
+        seekBackBtn.type = 'button';
+        seekBackBtn.setAttribute('aria-label', 'Back 10 seconds');
+        seekBackBtn.innerHTML = icons.seekBack;
+        transportGroup.appendChild(seekBackBtn);
+
         var playBtn = document.createElement('button');
         playBtn.className = 'sevenls-vp-btn sevenls-vp-play-btn';
         playBtn.type = 'button';
         playBtn.setAttribute('aria-label', 'Play');
         playBtn.innerHTML = icons.play;
-        leftGroup.appendChild(playBtn);
+        transportGroup.appendChild(playBtn);
+
+        var seekForwardBtn = document.createElement('button');
+        seekForwardBtn.className = 'sevenls-vp-btn sevenls-vp-seek-btn sevenls-vp-seek-forward-btn';
+        seekForwardBtn.type = 'button';
+        seekForwardBtn.setAttribute('aria-label', 'Forward 10 seconds');
+        seekForwardBtn.innerHTML = icons.seekForward;
+        transportGroup.appendChild(seekForwardBtn);
+
+        leftGroup.appendChild(transportGroup);
 
         // Volume
         var volumeWrap = document.createElement('div');
@@ -188,7 +207,6 @@
         volumeTrack.appendChild(volumeFill);
 
         volumeWrap.appendChild(volumeSlider);
-        leftGroup.appendChild(volumeWrap);
 
         // Time display
         var timeDisplay = document.createElement('span');
@@ -197,10 +215,13 @@
         leftGroup.appendChild(timeDisplay);
 
         bottomRow.appendChild(leftGroup);
+        bottomRow.appendChild(progressWrap);
 
         // Right group
         var rightGroup = document.createElement('div');
         rightGroup.className = 'sevenls-vp-controls-right';
+
+        rightGroup.appendChild(volumeWrap);
 
         var fsBtn = document.createElement('button');
         fsBtn.className = 'sevenls-vp-btn sevenls-vp-fullscreen-btn';
@@ -220,7 +241,9 @@
             progressWrap: progressWrap,
             progressBuffer: progressBuffer,
             progressBar: progressBar,
+            seekBackBtn: seekBackBtn,
             playBtn: playBtn,
+            seekForwardBtn: seekForwardBtn,
             muteBtn: muteBtn,
             volumeSlider: volumeSlider,
             volumeFill: volumeFill,
@@ -300,6 +323,24 @@
         updateUI();
     }
 
+    // ─── Skip Controls ──────────────────────────────────────
+
+    function seekBy(video, delta) {
+        video.currentTime = clampTime(video, video.currentTime + delta);
+    }
+
+    function setupSeekControls(video, els) {
+        els.seekBackBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            seekBy(video, -SEEK_STEP);
+        });
+
+        els.seekForwardBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            seekBy(video, SEEK_STEP);
+        });
+    }
+
     // ─── Progress / Seek ─────────────────────────────────────
 
     function setupProgress(container, video, els) {
@@ -338,6 +379,7 @@
         }
 
         function onSeekStart(e) {
+            if (e.cancelable) e.preventDefault();
             seeking = true;
             seekToPosition(e);
             document.addEventListener('mousemove', onSeekMove);
@@ -435,6 +477,7 @@
         }
 
         function onVolStart(e) {
+            if (e.cancelable) e.preventDefault();
             draggingVol = true;
             setVolumeFromEvent(e);
             document.addEventListener('mousemove', onVolMove);
@@ -653,8 +696,10 @@
         container.setAttribute('tabindex', '0');
 
         container.addEventListener('keydown', function (e) {
+            var key = typeof e.key === 'string' ? e.key.toLowerCase() : '';
+
             // Only handle when container or its children are focused
-            switch (e.key) {
+            switch (key) {
                 case ' ':
                 case 'k':
                     e.preventDefault();
@@ -664,23 +709,25 @@
                         video.pause();
                     }
                     break;
-                case 'ArrowRight':
+                case 'arrowright':
+                case 'l':
                     if (document.activeElement === els.progressWrap || document.activeElement === els.volumeSlider) break;
                     e.preventDefault();
-                    video.currentTime = clampTime(video, video.currentTime + 5);
+                    seekBy(video, SEEK_STEP);
                     break;
-                case 'ArrowLeft':
+                case 'arrowleft':
+                case 'j':
                     if (document.activeElement === els.progressWrap || document.activeElement === els.volumeSlider) break;
                     e.preventDefault();
-                    video.currentTime = clampTime(video, video.currentTime - 5);
+                    seekBy(video, -SEEK_STEP);
                     break;
-                case 'ArrowUp':
+                case 'arrowup':
                     if (document.activeElement === els.volumeSlider) break;
                     e.preventDefault();
                     video.volume = Math.min(1, video.volume + 0.05);
                     video.muted = false;
                     break;
-                case 'ArrowDown':
+                case 'arrowdown':
                     if (document.activeElement === els.volumeSlider) break;
                     e.preventDefault();
                     video.volume = Math.max(0, video.volume - 0.05);
@@ -725,6 +772,7 @@
 
         // Setup all control modules
         setupPlayPause(container, video, els);
+        setupSeekControls(video, els);
         setupProgress(container, video, els);
         setupVolume(container, video, els);
         setupFullscreen(container, video, els);

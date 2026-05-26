@@ -4,10 +4,11 @@ namespace SevenLS_VP;
 /**
  * Sync Controller
  *
- * High-level orchestrator exposing the three main operations:
+ * High-level orchestrator exposing the four main operations:
  *   1. test_api_connect()     — verify connectivity & token
  *   2. update_new_videos()    — incremental rolling-24 h sync
- *   3. initial_full_update()  — force full sync (no cache)
+ *   3. force_recent_videos_update() — force sync rolling-48 h window
+ *   4. initial_full_update()  — force full sync (no cache)
  *
  * All operations are mode-aware via Mode_Strategy and protected
  * by Sync_Lock to prevent concurrent execution.
@@ -18,6 +19,7 @@ class Sync_Controller {
     private Sync_Engine   $engine;
     private Mode_Strategy $strategy;
 
+    private const FORCE_RECENT_WINDOW_SECONDS = 172800;
     private const MAX_RETRIES      = 3;
     private const RETRY_BASE_DELAY = 2; // seconds — delay = base^attempt
 
@@ -78,9 +80,22 @@ class Sync_Controller {
      *
      * @return array|\WP_Error Sync summary or error.
      */
-    public function update_new_videos(): array|\WP_Error {
+    public function update_new_videos(?string $progress_job_id = null): array|\WP_Error {
+        $mode_key   = $this->strategy->get_mode_key();
+        $mode_label = $this->strategy->get_label();
+
+        $this->update_progress($progress_job_id, [
+            'status'     => 'running',
+            'mode'       => $mode_key,
+            'mode_label' => $mode_label,
+            'message'    => __('Preparing incremental sync...', '7ls-video-publisher'),
+            'percent'    => 2,
+        ]);
+
         if (!Sync_Lock::acquire()) {
-            return new \WP_Error('sync_locked', 'Another sync is already running. Please wait.');
+            $error = new \WP_Error('sync_locked', 'Another sync is already running. Please wait.');
+            $this->fail_progress($progress_job_id, $error->get_error_message());
+            return $error;
         }
 
         try {
@@ -95,17 +110,25 @@ class Sync_Controller {
                 $since = $twenty_four_hours_ago;
             }
 
-            $mode_key = $this->strategy->get_mode_key();
             Logger::log("update_new_videos: since={$since}, mode={$mode_key}");
 
+            $this->update_progress($progress_job_id, [
+                'message' => __('Syncing videos from the rolling 24-hour window...', '7ls-video-publisher'),
+                'percent' => 5,
+            ]);
+
             $result = $this->engine->sync([
-                'since'        => $since,
-                'full_sync'    => false,
-                'bypass_cache' => true,
+                'since'                => $since,
+                'full_sync'            => false,
+                'bypass_cache'         => true,
+                'progress_job_id'      => $progress_job_id,
+                'progress_min_percent' => 5,
+                'progress_max_percent' => 99,
             ]);
 
             if (is_wp_error($result)) {
                 Logger::log("update_new_videos failed: {$result->get_error_message()}", 'error');
+                $this->fail_progress($progress_job_id, $result->get_error_message());
                 return $result;
             }
 
@@ -120,6 +143,8 @@ class Sync_Controller {
                 $result['duration']
             ));
 
+            $this->complete_progress($progress_job_id, __('Incremental sync completed.', '7ls-video-publisher'), $result);
+
             return $result;
 
         } finally {
@@ -127,7 +152,80 @@ class Sync_Controller {
         }
     }
 
-    // ─── 3. Initial Full Update (Force) ─────────────────────
+    // ─── 3. Force Recent Videos Update (rolling 48 h) ───────
+
+    /**
+     * Force sync videos created/updated within the last 48 hours,
+     * ignoring the stored last_sync timestamp.
+     *
+     * @return array|\WP_Error Sync summary or error.
+     */
+    public function force_recent_videos_update(?string $progress_job_id = null): array|\WP_Error {
+        $mode_key   = $this->strategy->get_mode_key();
+        $mode_label = $this->strategy->get_label();
+
+        $this->update_progress($progress_job_id, [
+            'status'     => 'running',
+            'mode'       => $mode_key,
+            'mode_label' => $mode_label,
+            'message'    => __('Preparing force sync for the last 2 days...', '7ls-video-publisher'),
+            'percent'    => 2,
+        ]);
+
+        if (!Sync_Lock::acquire()) {
+            $error = new \WP_Error('sync_locked', 'Another sync is already running. Please wait.');
+            $this->fail_progress($progress_job_id, $error->get_error_message());
+            return $error;
+        }
+
+        try {
+            $current_ts = (int) current_time('timestamp', true);
+            $since_ts   = max(0, $current_ts - self::FORCE_RECENT_WINDOW_SECONDS);
+            $since      = gmdate('Y-m-d\TH:i:s\Z', $since_ts);
+
+            Logger::log("force_recent_videos_update: since={$since}, mode={$mode_key}");
+
+            $this->update_progress($progress_job_id, [
+                'message' => __('Force syncing videos from the last 48 hours...', '7ls-video-publisher'),
+                'percent' => 5,
+            ]);
+
+            $result = $this->engine->sync([
+                'since'                => $since,
+                'full_sync'            => false,
+                'bypass_cache'         => true,
+                'progress_job_id'      => $progress_job_id,
+                'progress_min_percent' => 5,
+                'progress_max_percent' => 99,
+            ]);
+
+            if (is_wp_error($result)) {
+                Logger::log("force_recent_videos_update failed: {$result->get_error_message()}", 'error');
+                $this->fail_progress($progress_job_id, $result->get_error_message());
+                return $result;
+            }
+
+            update_option('sevenls_vp_last_sync', current_time('mysql'));
+
+            Logger::log(sprintf(
+                'force_recent_videos_update completed: %d processed (%d created, %d updated, %d errors) in %.1fs',
+                $result['processed'],
+                $result['created'],
+                $result['updated'],
+                $result['errors'],
+                $result['duration']
+            ));
+
+            $this->complete_progress($progress_job_id, __('Force sync for the last 2 days completed.', '7ls-video-publisher'), $result);
+
+            return $result;
+
+        } finally {
+            Sync_Lock::release();
+        }
+    }
+
+    // ─── 4. Initial Full Update (Force) ─────────────────────
 
     /**
      * Full sync: optionally trigger server-side preparation, clear caches,
@@ -135,14 +233,31 @@ class Sync_Controller {
      *
      * @return array|\WP_Error Sync summary or error.
      */
-    public function initial_full_update(): array|\WP_Error {
+    public function initial_full_update(?string $progress_job_id = null): array|\WP_Error {
+        $mode_key   = $this->strategy->get_mode_key();
+        $mode_label = $this->strategy->get_label();
+
+        $this->update_progress($progress_job_id, [
+            'status'     => 'running',
+            'mode'       => $mode_key,
+            'mode_label' => $mode_label,
+            'message'    => __('Preparing full sync...', '7ls-video-publisher'),
+            'percent'    => 2,
+        ]);
+
         if (!Sync_Lock::acquire()) {
-            return new \WP_Error('sync_locked', 'Another sync is already running. Please wait.');
+            $error = new \WP_Error('sync_locked', 'Another sync is already running. Please wait.');
+            $this->fail_progress($progress_job_id, $error->get_error_message());
+            return $error;
         }
 
         try {
-            $mode_key = $this->strategy->get_mode_key();
             Logger::log("initial_full_update started (mode: {$mode_key})");
+
+            $this->update_progress($progress_job_id, [
+                'message' => __('Triggering server-side preparation...', '7ls-video-publisher'),
+                'percent' => 5,
+            ]);
 
             // 1) Trigger server-side data preparation
             $trigger_result = $this->with_retry(fn () => $this->api->trigger_plugin_sync([
@@ -155,19 +270,41 @@ class Sync_Controller {
                     "Server sync trigger failed (continuing): {$trigger_result->get_error_message()}",
                     'warning'
                 );
+
+                $this->update_progress($progress_job_id, [
+                    'message' => __('Server-side preparation failed. Continuing with full sync...', '7ls-video-publisher'),
+                    'percent' => 10,
+                ]);
+            } else {
+                $this->update_progress($progress_job_id, [
+                    'message' => __('Server-side preparation completed.', '7ls-video-publisher'),
+                    'percent' => 10,
+                ]);
             }
 
             // 2) Clear all page transient caches
+            $this->update_progress($progress_job_id, [
+                'message' => __('Clearing cached sync pages...', '7ls-video-publisher'),
+                'percent' => 12,
+            ]);
             $this->engine->clear_sync_transients();
 
             // 3) Run full sync — no since, no cache
+            $this->update_progress($progress_job_id, [
+                'message' => __('Running full sync across all videos...', '7ls-video-publisher'),
+                'percent' => 15,
+            ]);
             $result = $this->engine->sync([
-                'full_sync'    => true,
-                'bypass_cache' => true,
+                'full_sync'            => true,
+                'bypass_cache'         => true,
+                'progress_job_id'      => $progress_job_id,
+                'progress_min_percent' => 15,
+                'progress_max_percent' => 99,
             ]);
 
             if (is_wp_error($result)) {
                 Logger::log("initial_full_update failed: {$result->get_error_message()}", 'error');
+                $this->fail_progress($progress_job_id, $result->get_error_message());
                 return $result;
             }
 
@@ -183,11 +320,54 @@ class Sync_Controller {
                 $result['duration']
             ));
 
+            $this->complete_progress($progress_job_id, __('Full sync completed.', '7ls-video-publisher'), $result);
+
             return $result;
 
         } finally {
             Sync_Lock::release();
         }
+    }
+
+    /**
+     * @param array<string, mixed> $summary
+     */
+    private function complete_progress(?string $progress_job_id, string $message, array $summary): void {
+        if ($progress_job_id === null || $progress_job_id === '') {
+            return;
+        }
+
+        Sync_Lock::complete_progress($progress_job_id, [
+            'message'  => $message,
+            'processed'=> $summary['processed'] ?? 0,
+            'completed_items' => $summary['processed'] ?? 0,
+            'handled'  => ($summary['processed'] ?? 0) + ($summary['errors'] ?? 0),
+            'created'  => $summary['created'] ?? 0,
+            'updated'  => $summary['updated'] ?? 0,
+            'errors'   => $summary['errors'] ?? 0,
+            'duration' => $summary['duration'] ?? null,
+            'current_item' => '',
+            'pending_items' => [],
+        ]);
+    }
+
+    private function fail_progress(?string $progress_job_id, string $message): void {
+        if ($progress_job_id === null || $progress_job_id === '') {
+            return;
+        }
+
+        Sync_Lock::fail_progress($progress_job_id, $message);
+    }
+
+    /**
+     * @param array<string, mixed> $state
+     */
+    private function update_progress(?string $progress_job_id, array $state): void {
+        if ($progress_job_id === null || $progress_job_id === '') {
+            return;
+        }
+
+        Sync_Lock::update_progress($progress_job_id, $state);
     }
 
     // ─── Retry helper ───────────────────────────────────────

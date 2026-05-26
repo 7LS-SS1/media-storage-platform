@@ -39,7 +39,7 @@
 
                 copyText(text)
                     .then(function () {
-                        button.textContent = '✓ Copied!';
+                        button.textContent = 'Copied!';
                         button.classList.add('is-copied');
                         window.setTimeout(function () {
                             button.textContent = button.dataset.defaultLabel || 'Copy';
@@ -86,10 +86,524 @@
         });
     }
 
+    function setupSyncForms() {
+        var config = window.sevenlsVpAdmin;
+        var forms = document.querySelectorAll('.sevenls-vp-sync-form');
+        var modal = getSyncModal();
+        var activeSync = null;
+
+        if (!config || !forms.length || !modal || !window.fetch) {
+            return;
+        }
+
+        function setSyncButtonsDisabled(disabled) {
+            forms.forEach(function (form) {
+                var button = form.querySelector('button[type="submit"]');
+                if (button) {
+                    button.disabled = disabled;
+                }
+            });
+        }
+
+        function setCardLoading(form, loading) {
+            var card = form.closest('.sevenls-vp-card');
+            if (!card) {
+                return;
+            }
+
+            if (loading) {
+                card.classList.add('is-loading');
+            } else {
+                card.classList.remove('is-loading');
+            }
+        }
+
+        function generateJobId() {
+            return 'sync-' + Date.now() + '-' + Math.floor(Math.random() * 100000);
+        }
+
+        function request(endpointAction, payload) {
+            var formData = new FormData();
+            formData.append('action', endpointAction);
+            formData.append('nonce', config.syncNonce);
+
+            Object.keys(payload).forEach(function (key) {
+                if (payload[key] !== undefined && payload[key] !== null) {
+                    formData.append(key, payload[key]);
+                }
+            });
+
+            return window.fetch(config.ajaxUrl, {
+                method: 'POST',
+                credentials: 'same-origin',
+                body: formData
+            }).then(function (response) {
+                return response.json().catch(function () {
+                    return {
+                        success: false,
+                        data: {
+                            message: 'Invalid AJAX response.'
+                        }
+                    };
+                });
+            });
+        }
+
+        function openModal(label) {
+            modal.root.hidden = false;
+            modal.root.classList.add('is-visible');
+            document.body.classList.add('sevenls-vp-modal-open');
+            modal.root.dataset.reloadOnClose = '0';
+            modal.root.dataset.finalState = '';
+            modal.title.textContent = label || config.labels.preparing;
+            modal.message.textContent = config.labels.preparing;
+            modal.status.textContent = config.labels.queued;
+            modal.status.className = 'sevenls-vp-sync-modal__status sevenls-vp-sync-modal__status--queued';
+            modal.percent.textContent = '0%';
+            modal.progress.style.width = '0%';
+            modal.completed.textContent = '0';
+            modal.created.textContent = '0';
+            modal.updated.textContent = '0';
+            modal.errors.textContent = '0';
+            modal.currentItem.textContent = config.labels.waiting_item;
+            modal.page.textContent = '\u2014';
+            modal.total.textContent = '\u2014';
+            modal.mode.textContent = '\u2014';
+            modal.alert.hidden = false;
+            modal.alert.className = 'sevenls-vp-sync-modal__alert sevenls-vp-sync-modal__alert--info';
+            modal.alertText.textContent = config.labels.running_alert;
+            modal.pendingCount.textContent = '0';
+            modal.resultsCount.textContent = '0';
+            modal.errorsCount.textContent = '0';
+            renderSimpleList(modal.pendingList, [], config.labels.no_pending);
+            renderResultList(modal.resultsList, [], config.labels.no_results);
+            renderResultList(modal.errorsList, [], config.labels.no_errors);
+            modal.errorsWrap.hidden = true;
+            modal.closeButtons.forEach(function (button) {
+                button.disabled = true;
+                if (button === modal.footerClose) {
+                    button.textContent = config.labels.close;
+                }
+            });
+        }
+
+        function closeModal() {
+            if (!modal.root.classList.contains('is-visible')) {
+                return;
+            }
+
+            if (modal.footerClose.disabled) {
+                return;
+            }
+
+            var shouldReload = modal.root.dataset.reloadOnClose === '1';
+
+            modal.root.classList.remove('is-visible');
+            modal.root.hidden = true;
+            document.body.classList.remove('sevenls-vp-modal-open');
+
+            if (shouldReload) {
+                window.location.reload();
+            }
+        }
+
+        function setCloseEnabled(enabled, label, shouldReload) {
+            modal.root.dataset.reloadOnClose = shouldReload ? '1' : '0';
+            modal.closeButtons.forEach(function (button) {
+                button.disabled = !enabled;
+            });
+            if (label) {
+                modal.footerClose.textContent = label;
+            }
+        }
+
+        function getStatusLabel(status) {
+            if (status === 'completed') {
+                return config.labels.completed;
+            }
+            if (status === 'error') {
+                return config.labels.error;
+            }
+            if (status === 'running') {
+                return config.labels.running;
+            }
+            return config.labels.queued;
+        }
+
+        function updateModal(progress, fallbackLabel) {
+            var status = progress.status || 'queued';
+            var label = progress.label || fallbackLabel || config.labels.preparing;
+            var percent = typeof progress.percent === 'number' ? progress.percent : parseInt(progress.percent || '0', 10);
+            var completed = typeof progress.completed_items === 'number'
+                ? progress.completed_items
+                : (parseInt(progress.completed_items || progress.processed || '0', 10) || 0);
+            var currentPage = parseInt(progress.current_page || '0', 10) || 0;
+            var totalPages = progress.total_pages !== null && progress.total_pages !== undefined
+                ? parseInt(progress.total_pages, 10) || 0
+                : 0;
+            var totalItems = progress.total_items !== null && progress.total_items !== undefined
+                ? parseInt(progress.total_items, 10) || 0
+                : 0;
+            var pendingItems = Array.isArray(progress.pending_items) ? progress.pending_items : [];
+            var recentResults = Array.isArray(progress.recent_results) ? progress.recent_results : [];
+            var errorItems = Array.isArray(progress.error_items) ? progress.error_items : [];
+            var currentItem = progress.current_item || '';
+
+            modal.title.textContent = label;
+            modal.message.textContent = progress.message || config.labels.preparing;
+            modal.status.textContent = getStatusLabel(status);
+            modal.status.className = 'sevenls-vp-sync-modal__status sevenls-vp-sync-modal__status--' + status;
+            modal.percent.textContent = Math.max(0, Math.min(100, percent)) + '%';
+            modal.progress.style.width = Math.max(0, Math.min(100, percent)) + '%';
+            modal.completed.textContent = completed;
+            modal.created.textContent = parseInt(progress.created || '0', 10) || 0;
+            modal.updated.textContent = parseInt(progress.updated || '0', 10) || 0;
+            modal.errors.textContent = parseInt(progress.errors || '0', 10) || 0;
+            modal.currentItem.textContent = currentItem || (status === 'running' ? config.labels.waiting_item : '\u2014');
+            modal.page.textContent = currentPage > 0
+                ? (totalPages > 0 ? currentPage + ' / ' + totalPages : String(currentPage))
+                : config.labels.unknown_page;
+            modal.total.textContent = totalItems > 0 ? String(totalItems) : config.labels.unknown_total;
+            modal.mode.textContent = progress.mode_label || '\u2014';
+            modal.pendingCount.textContent = String(pendingItems.length);
+            modal.resultsCount.textContent = String(recentResults.length);
+            modal.errorsCount.textContent = String(errorItems.length);
+            renderSimpleList(modal.pendingList, pendingItems, config.labels.no_pending);
+            renderResultList(modal.resultsList, recentResults, config.labels.no_results);
+            renderResultList(modal.errorsList, errorItems, config.labels.no_errors);
+            modal.errorsWrap.hidden = errorItems.length === 0;
+            updateAlert(status, progress.message || config.labels.preparing);
+        }
+
+        function recordProgressHeartbeat(state, progress) {
+            var signatureParts;
+
+            if (!state || !progress) {
+                return;
+            }
+
+            signatureParts = [
+                progress.status || '',
+                progress.updated_at || '',
+                progress.percent || 0,
+                progress.completed_items || progress.processed || 0,
+                progress.errors || 0,
+                progress.current_page || 0,
+                progress.current_item || ''
+            ];
+
+            if (state.lastProgressSignature === signatureParts.join('|')) {
+                return;
+            }
+
+            state.lastProgressSignature = signatureParts.join('|');
+            state.lastProgressAt = Date.now();
+        }
+
+        function maybeFailStalledSync(state) {
+            var staleThreshold = parseInt(config.syncStaleThreshold || '180000', 10) || 180000;
+
+            if (!state || state.finalized || !state.lastProgressAt) {
+                return false;
+            }
+
+            if (!activeSync || activeSync.jobId !== state.jobId) {
+                return false;
+            }
+
+            if ((Date.now() - state.lastProgressAt) < staleThreshold) {
+                return false;
+            }
+
+            failSync(state, config.labels.stalled);
+            return true;
+        }
+
+        function finalizeSync(state, progress, options) {
+            var shouldReload = !!options.shouldReload;
+            var buttonLabel = shouldReload ? config.labels.close_refresh : config.labels.close;
+
+            if (state.pollTimer) {
+                window.clearInterval(state.pollTimer);
+                state.pollTimer = null;
+            }
+
+            setCardLoading(state.form, false);
+            setSyncButtonsDisabled(false);
+            setCloseEnabled(true, buttonLabel, shouldReload);
+            modal.root.dataset.finalState = progress && progress.status ? progress.status : '';
+            state.finalized = true;
+
+            if (activeSync && activeSync.jobId === state.jobId) {
+                activeSync = null;
+            }
+        }
+
+        function failSync(state, message) {
+            var progress = {
+                status: 'error',
+                label: state.label,
+                message: message || config.labels.error,
+                percent: 100,
+                completed_items: 0,
+                created: 0,
+                updated: 0,
+                errors: 0,
+                current_page: 0,
+                total_pages: null,
+                total_items: null,
+                mode_label: '',
+                current_item: '',
+                pending_items: [],
+                recent_results: [],
+                error_items: [
+                    {
+                        title: state.label,
+                        status: 'error',
+                        detail: message || config.labels.error
+                    }
+                ]
+            };
+
+            updateModal(progress, state.label);
+            finalizeSync(state, progress, { shouldReload: false });
+        }
+
+        function updateAlert(status, message) {
+            modal.alert.hidden = false;
+
+            if (status === 'completed') {
+                modal.alert.className = 'sevenls-vp-sync-modal__alert sevenls-vp-sync-modal__alert--success';
+                modal.alertText.textContent = message || config.labels.success_alert;
+                return;
+            }
+
+            if (status === 'error') {
+                modal.alert.className = 'sevenls-vp-sync-modal__alert sevenls-vp-sync-modal__alert--error';
+                modal.alertText.textContent = message || config.labels.error;
+                return;
+            }
+
+            modal.alert.className = 'sevenls-vp-sync-modal__alert sevenls-vp-sync-modal__alert--info';
+            modal.alertText.textContent = message || config.labels.running_alert;
+        }
+
+        function renderSimpleList(listEl, items, emptyText) {
+            listEl.innerHTML = '';
+
+            if (!Array.isArray(items) || !items.length) {
+                appendEmptyListItem(listEl, emptyText);
+                return;
+            }
+
+            items.forEach(function (item) {
+                var li = document.createElement('li');
+                li.className = 'sevenls-vp-sync-modal__list-item';
+                li.textContent = item;
+                listEl.appendChild(li);
+            });
+        }
+
+        function renderResultList(listEl, items, emptyText) {
+            listEl.innerHTML = '';
+
+            if (!Array.isArray(items) || !items.length) {
+                appendEmptyListItem(listEl, emptyText);
+                return;
+            }
+
+            items.forEach(function (item) {
+                var li = document.createElement('li');
+                var badge = document.createElement('span');
+                var body = document.createElement('div');
+                var title = document.createElement('strong');
+                var detail = document.createElement('span');
+
+                li.className = 'sevenls-vp-sync-modal__list-item sevenls-vp-sync-modal__list-item--result';
+                badge.className = 'sevenls-vp-sync-modal__result-badge sevenls-vp-sync-modal__result-badge--' + item.status;
+                badge.textContent = getResultStatusLabel(item.status);
+                body.className = 'sevenls-vp-sync-modal__result-body';
+                title.textContent = item.title || '';
+                detail.className = 'sevenls-vp-sync-modal__result-detail';
+                detail.textContent = item.detail || '';
+
+                body.appendChild(title);
+                if (item.detail) {
+                    body.appendChild(detail);
+                }
+
+                li.appendChild(badge);
+                li.appendChild(body);
+                listEl.appendChild(li);
+            });
+        }
+
+        function appendEmptyListItem(listEl, text) {
+            var li = document.createElement('li');
+            li.className = 'sevenls-vp-sync-modal__list-empty';
+            li.textContent = text;
+            listEl.appendChild(li);
+        }
+
+        function getResultStatusLabel(status) {
+            if (status === 'created') {
+                return config.labels.created;
+            }
+            if (status === 'updated') {
+                return config.labels.updated;
+            }
+            if (status === 'error') {
+                return config.labels.error_item;
+            }
+            return config.labels.completed_item;
+        }
+
+        function pollProgress(state) {
+            request('sevenls_vp_get_sync_progress', {
+                job_id: state.jobId
+            }).then(function (result) {
+                if (!result || !result.success || !result.data) {
+                    return;
+                }
+
+                updateModal(result.data, state.label);
+                recordProgressHeartbeat(state, result.data);
+
+                if (result.data.status === 'completed') {
+                    finalizeSync(state, result.data, { shouldReload: true });
+                } else if (result.data.status === 'error') {
+                    finalizeSync(state, result.data, { shouldReload: false });
+                }
+            }).catch(function () {
+                // Ignore transient polling errors while the main request is running.
+            });
+        }
+
+        forms.forEach(function (form) {
+            form.addEventListener('submit', function (event) {
+                var confirmMessage;
+                var state;
+
+                if (activeSync) {
+                    event.preventDefault();
+                    setCardLoading(form, false);
+                    return;
+                }
+
+                confirmMessage = form.getAttribute('data-confirm');
+                if (confirmMessage && !window.confirm(confirmMessage)) {
+                    event.preventDefault();
+                    setCardLoading(form, false);
+                    return;
+                }
+
+                event.preventDefault();
+
+                state = {
+                    form: form,
+                    jobId: generateJobId(),
+                    label: form.getAttribute('data-sync-label') || 'Sync',
+                    syncAction: form.getAttribute('data-sync-action') || '',
+                    pollTimer: null,
+                    lastProgressAt: Date.now(),
+                    lastProgressSignature: '',
+                    finalized: false
+                };
+
+                activeSync = state;
+                openModal(state.label);
+                setSyncButtonsDisabled(true);
+                setCardLoading(form, true);
+
+                state.pollTimer = window.setInterval(function () {
+                    if (maybeFailStalledSync(state)) {
+                        return;
+                    }
+
+                    pollProgress(state);
+                }, parseInt(config.syncPollInterval || '1000', 10));
+
+                pollProgress(state);
+
+                request('sevenls_vp_start_sync', {
+                    sync_action: state.syncAction,
+                    job_id: state.jobId
+                }).then(function (result) {
+                    if (!result || !result.success) {
+                        failSync(state, result && result.data && result.data.message ? result.data.message : 'Sync failed.');
+                        return;
+                    }
+
+                    if (result.data && result.data.progress) {
+                        updateModal(result.data.progress, state.label);
+                        recordProgressHeartbeat(state, result.data.progress);
+
+                        if (result.data.progress.status === 'completed') {
+                            finalizeSync(state, result.data.progress, { shouldReload: true });
+                        } else if (result.data.progress.status === 'error') {
+                            finalizeSync(state, result.data.progress, { shouldReload: false });
+                        }
+                    }
+                }).catch(function () {
+                    failSync(state, 'Network error while starting sync.');
+                });
+            });
+        });
+
+        modal.closeButtons.forEach(function (button) {
+            button.addEventListener('click', function () {
+                closeModal();
+            });
+        });
+
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') {
+                closeModal();
+            }
+        });
+    }
+
+    function getSyncModal() {
+        var root = document.querySelector('[data-sync-modal]');
+
+        if (!root) {
+            return null;
+        }
+
+        return {
+            root: root,
+            title: root.querySelector('[data-sync-modal-title]'),
+            message: root.querySelector('[data-sync-modal-message]'),
+            status: root.querySelector('[data-sync-modal-status]'),
+            percent: root.querySelector('[data-sync-modal-percent]'),
+            progress: root.querySelector('[data-sync-modal-progress]'),
+            alert: root.querySelector('[data-sync-modal-alert]'),
+            alertText: root.querySelector('[data-sync-modal-alert-text]'),
+            completed: root.querySelector('[data-sync-modal-completed]'),
+            created: root.querySelector('[data-sync-modal-created]'),
+            updated: root.querySelector('[data-sync-modal-updated]'),
+            errors: root.querySelector('[data-sync-modal-errors]'),
+            currentItem: root.querySelector('[data-sync-modal-current-item]'),
+            page: root.querySelector('[data-sync-modal-page]'),
+            total: root.querySelector('[data-sync-modal-total]'),
+            mode: root.querySelector('[data-sync-modal-mode]'),
+            pendingCount: root.querySelector('[data-sync-modal-pending-count]'),
+            pendingList: root.querySelector('[data-sync-modal-pending-list]'),
+            resultsCount: root.querySelector('[data-sync-modal-results-count]'),
+            resultsList: root.querySelector('[data-sync-modal-results-list]'),
+            errorsWrap: root.querySelector('[data-sync-modal-errors-wrap]'),
+            errorsCount: root.querySelector('[data-sync-modal-errors-count]'),
+            errorsList: root.querySelector('[data-sync-modal-errors-list]'),
+            footerClose: root.querySelector('[data-sync-modal-close-button]'),
+            closeButtons: root.querySelectorAll('[data-sync-modal-close], [data-sync-modal-close-button]')
+        };
+    }
+
     function init() {
         setupCopyButtons();
         setupSmoothScroll();
         setupProgressBars();
+        setupSyncForms();
     }
 
     if (document.readyState === 'loading') {
