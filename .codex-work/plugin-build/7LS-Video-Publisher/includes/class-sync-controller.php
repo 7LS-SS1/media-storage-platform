@@ -23,6 +23,8 @@ class Sync_Controller {
     private const FULL_SYNC_REMOTE_BATCH_LIMIT = 1000;
     private const FULL_SYNC_LOCAL_PROGRESS_MIN = 35;
     private const FULL_SYNC_LOCAL_PROGRESS_MAX = 99;
+    private const FULL_SYNC_REQUEST_TIME_BUDGET_SECONDS = 12.0;
+    private const FULL_SYNC_REQUEST_TIME_BUFFER_SECONDS = 0.75;
     private const MAX_RETRIES      = 3;
     private const RETRY_BASE_DELAY = 2; // seconds — delay = base^attempt
 
@@ -321,7 +323,7 @@ class Sync_Controller {
     }
 
     /**
-     * Process one batched full sync request.
+     * Process a batched full sync request within a bounded time budget.
      *
      * @return array<string, mixed>|\WP_Error
      */
@@ -381,13 +383,50 @@ class Sync_Controller {
             Sync_Lock::refresh();
             Sync_Lock::refresh_active_job($normalized_job_id, 'full_sync');
 
-            $phase = isset($state['phase']) && is_string($state['phase']) ? $state['phase'] : 'prepare_remote';
+            $request_started_at = microtime(true);
+            $steps_completed = 0;
 
-            if ($phase === 'prepare_remote') {
-                return $this->process_remote_preparation_batch($normalized_job_id, $state);
-            }
+            do {
+                $phase = isset($state['phase']) && is_string($state['phase']) ? $state['phase'] : 'prepare_remote';
 
-            return $this->process_local_sync_batch($normalized_job_id, $state);
+                if ($phase === 'prepare_remote') {
+                    $step_result = $this->run_remote_preparation_step($normalized_job_id, $state);
+                } else {
+                    $step_result = $this->run_local_sync_step($normalized_job_id, $state);
+                }
+
+                if (is_wp_error($step_result)) {
+                    return $step_result;
+                }
+
+                $steps_completed++;
+
+                if (!empty($step_result['completed'])) {
+                    return [
+                        'job_id'   => $normalized_job_id,
+                        'phase'    => 'completed',
+                        'batched'  => true,
+                        'continue' => false,
+                        'result'   => $step_result['result'] ?? null,
+                        'progress' => $step_result['progress'] ?? Sync_Lock::get_progress($normalized_job_id),
+                        'message'  => __('ซิงก์ข้อมูลทั้งหมดเสร็จแล้ว', '7ls-video-publisher'),
+                    ];
+                }
+
+                $state = isset($step_result['state']) && is_array($step_result['state']) ? $step_result['state'] : $state;
+            } while (
+                !empty($step_result['continue'])
+                && $this->should_continue_full_sync_batch_loop($request_started_at)
+            );
+
+            return [
+                'job_id'   => $normalized_job_id,
+                'phase'    => isset($state['phase']) && is_string($state['phase']) ? $state['phase'] : 'prepare_remote',
+                'batched'  => true,
+                'continue' => !empty($step_result['continue']),
+                'progress' => Sync_Lock::get_progress($normalized_job_id),
+                'steps'    => $steps_completed,
+            ];
         } catch (\Throwable $throwable) {
             Logger::log('Full sync batch crashed: ' . $throwable->getMessage(), 'error');
 
@@ -398,6 +437,233 @@ class Sync_Controller {
         } finally {
             Sync_Lock::release();
         }
+    }
+
+    /**
+     * @param array<string, mixed> $state
+     * @return array<string, mixed>|\WP_Error
+     */
+    private function run_remote_preparation_step(string $job_id, array $state): array|\WP_Error {
+        $mode_key = isset($state['mode']) && is_string($state['mode']) && $state['mode'] !== ''
+            ? $state['mode']
+            : $this->strategy->get_mode_key();
+        $mode_label = isset($state['mode_label']) && is_string($state['mode_label']) && $state['mode_label'] !== ''
+            ? $state['mode_label']
+            : $this->strategy->get_label();
+        $cursor = isset($state['remote_cursor']) && is_string($state['remote_cursor']) && $state['remote_cursor'] !== ''
+            ? $state['remote_cursor']
+            : null;
+        $remote_batches = max(0, (int) ($state['remote_batches'] ?? 0)) + 1;
+        $remote_totals = $this->normalize_remote_totals($state['remote_totals'] ?? []);
+
+        $this->update_progress($job_id, [
+            'status'     => 'running',
+            'mode'       => $mode_key,
+            'mode_label' => $mode_label,
+            'message'    => $cursor === null
+                ? __('กำลังสแกนวิดีโอต้นทางสำหรับการซิงก์ข้อมูลทั้งหมด...', '7ls-video-publisher')
+                : sprintf(__('กำลังสแกนวิดีโอต้นทาง แบตช์ที่ %d...', '7ls-video-publisher'), $remote_batches),
+            'percent'    => $this->build_remote_prepare_percent($remote_batches, false),
+        ]);
+
+        $payload = [
+            'mode'  => $mode_key,
+            'limit' => self::FULL_SYNC_REMOTE_BATCH_LIMIT,
+        ];
+        if ($cursor !== null) {
+            $payload['cursor'] = $cursor;
+        }
+
+        $response = $this->with_retry(fn () => $this->api->trigger_plugin_sync($payload));
+        if (is_wp_error($response)) {
+            Logger::log("Full sync remote preparation failed: {$response->get_error_message()}", 'error');
+
+            return $this->fail_batch_job($job_id, $response->get_error_message());
+        }
+
+        foreach (array_keys($remote_totals) as $key) {
+            $remote_totals[$key] += max(0, (int) ($response[$key] ?? 0));
+        }
+
+        $next_cursor = isset($response['nextCursor']) && is_string($response['nextCursor']) && $response['nextCursor'] !== ''
+            ? $response['nextCursor']
+            : null;
+
+        $state['mode'] = $mode_key;
+        $state['mode_label'] = $mode_label;
+        $state['remote_batches'] = $remote_batches;
+        $state['remote_cursor'] = $next_cursor;
+        $state['remote_totals'] = $remote_totals;
+
+        if ($next_cursor !== null) {
+            Sync_Lock::set_job_state($job_id, $state);
+            Sync_Lock::refresh_active_job($job_id, 'full_sync');
+
+            $message = sprintf(
+                __('เตรียมข้อมูลต้นทางแบตช์ที่ %1$d แล้ว: สแกน %2$d รายการ สร้าง %3$d รายการ อัปเดต %4$d รายการ กำลังดำเนินการต่อ...', '7ls-video-publisher'),
+                $remote_batches,
+                max(0, (int) ($response['scanned'] ?? 0)),
+                max(0, (int) ($response['created'] ?? 0)),
+                max(0, (int) ($response['updated'] ?? 0))
+            );
+
+            Sync_Lock::update_progress($job_id, [
+                'status'     => 'running',
+                'mode'       => $mode_key,
+                'mode_label' => $mode_label,
+                'message'    => $message,
+                'percent'    => $this->build_remote_prepare_percent($remote_batches, false),
+            ]);
+
+            return [
+                'state'    => $state,
+                'phase'    => 'prepare_remote',
+                'continue' => true,
+            ];
+        }
+
+        $this->engine->clear_sync_transients();
+        $state['phase'] = 'sync_local';
+        $state['page'] = 1;
+        $state['per_page'] = max(1, (int) ($state['per_page'] ?? 50));
+        Sync_Lock::set_job_state($job_id, $state);
+        Sync_Lock::refresh_active_job($job_id, 'full_sync');
+
+        Sync_Lock::update_progress($job_id, [
+            'status'        => 'running',
+            'mode'          => $mode_key,
+            'mode_label'    => $mode_label,
+            'message'       => __('การเตรียมข้อมูลฝั่งเซิร์ฟเวอร์เสร็จแล้ว กำลังเริ่มนำเข้าข้อมูลใน WordPress...', '7ls-video-publisher'),
+            'percent'       => self::FULL_SYNC_LOCAL_PROGRESS_MIN,
+            'current_item'  => '',
+            'pending_items' => [],
+        ]);
+
+        return [
+            'state'    => $state,
+            'phase'    => 'sync_local',
+            'continue' => true,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $state
+     * @return array<string, mixed>|\WP_Error
+     */
+    private function run_local_sync_step(string $job_id, array $state): array|\WP_Error {
+        $batch = $this->engine->sync_batch([
+            'full_sync'            => true,
+            'bypass_cache'         => true,
+            'page'                 => max(1, (int) ($state['page'] ?? 1)),
+            'per_page'             => max(1, (int) ($state['per_page'] ?? 50)),
+            'processed'            => max(0, (int) ($state['processed'] ?? 0)),
+            'created'              => max(0, (int) ($state['created'] ?? 0)),
+            'updated'              => max(0, (int) ($state['updated'] ?? 0)),
+            'errors'               => max(0, (int) ($state['errors'] ?? 0)),
+            'recent_results'       => isset($state['recent_results']) && is_array($state['recent_results']) ? $state['recent_results'] : [],
+            'error_items'          => isset($state['error_items']) && is_array($state['error_items']) ? $state['error_items'] : [],
+            'total_items'          => $state['total_items'] ?? null,
+            'total_pages'          => $state['total_pages'] ?? null,
+            'progress_job_id'      => $job_id,
+            'progress_min_percent' => self::FULL_SYNC_LOCAL_PROGRESS_MIN,
+            'progress_max_percent' => self::FULL_SYNC_LOCAL_PROGRESS_MAX,
+        ]);
+
+        if (is_wp_error($batch)) {
+            Logger::log("Full sync local batch failed: {$batch->get_error_message()}", 'error');
+
+            return $this->fail_batch_job($job_id, $batch->get_error_message());
+        }
+
+        $state['phase'] = 'sync_local';
+        $state['page'] = !empty($batch['has_more']) ? max(1, (int) ($batch['next_page'] ?? 1)) : max(1, (int) ($batch['page'] ?? ($state['page'] ?? 1)));
+        $state['per_page'] = max(1, (int) ($batch['per_page'] ?? ($state['per_page'] ?? 50)));
+        $state['processed'] = max(0, (int) ($batch['processed'] ?? 0));
+        $state['created'] = max(0, (int) ($batch['created'] ?? 0));
+        $state['updated'] = max(0, (int) ($batch['updated'] ?? 0));
+        $state['errors'] = max(0, (int) ($batch['errors'] ?? 0));
+        $state['total_items'] = isset($batch['total_items']) ? $batch['total_items'] : null;
+        $state['total_pages'] = isset($batch['total_pages']) ? $batch['total_pages'] : null;
+        $state['recent_results'] = isset($batch['recent_results']) && is_array($batch['recent_results']) ? $batch['recent_results'] : [];
+        $state['error_items'] = isset($batch['error_items']) && is_array($batch['error_items']) ? $batch['error_items'] : [];
+
+        if (!empty($batch['has_more'])) {
+            Sync_Lock::set_job_state($job_id, $state);
+            Sync_Lock::refresh_active_job($job_id, 'full_sync');
+
+            return [
+                'state'    => $state,
+                'phase'    => 'sync_local',
+                'continue' => true,
+            ];
+        }
+
+        $duration = round(microtime(true) - (float) ($state['started_at_micro'] ?? microtime(true)), 2);
+        $summary = [
+            'processed' => $state['processed'],
+            'created'   => $state['created'],
+            'updated'   => $state['updated'],
+            'errors'    => $state['errors'],
+            'duration'  => $duration,
+        ];
+
+        update_option('sevenls_vp_last_sync', current_time('mysql'));
+        update_option('sevenls_vp_last_full_sync', current_time('mysql'));
+
+        Logger::log(sprintf(
+            'Batched full sync completed: %d processed (%d created, %d updated, %d errors) in %.2fs',
+            $summary['processed'],
+            $summary['created'],
+            $summary['updated'],
+            $summary['errors'],
+            $summary['duration']
+        ));
+
+        $this->complete_progress($job_id, __('ซิงก์ข้อมูลทั้งหมดเสร็จแล้ว', '7ls-video-publisher'), $summary);
+        Sync_Lock::clear_job_state($job_id);
+        Sync_Lock::release_active_job($job_id);
+
+        return [
+            'state'     => $state,
+            'phase'     => 'completed',
+            'continue'  => false,
+            'completed' => true,
+            'result'    => $summary,
+            'progress'  => Sync_Lock::get_progress($job_id),
+        ];
+    }
+
+    private function should_continue_full_sync_batch_loop(float $started_at): bool {
+        $elapsed = microtime(true) - $started_at;
+        $budget = $this->get_full_sync_request_time_budget();
+        $continue_until = max(1.0, $budget - self::FULL_SYNC_REQUEST_TIME_BUFFER_SECONDS);
+
+        return $elapsed < $continue_until;
+    }
+
+    private function get_full_sync_request_time_budget(): float {
+        $budget = (float) apply_filters(
+            'sevenls_vp_full_sync_request_time_budget',
+            self::FULL_SYNC_REQUEST_TIME_BUDGET_SECONDS
+        );
+
+        return max(8.0, min(15.0, $budget));
+    }
+
+    /**
+     * @param array<string, mixed> $state
+     * @return array<string, mixed>|\WP_Error
+     */
+    private function process_remote_preparation_batch(string $job_id, array $state): array|\WP_Error {
+        return $this->run_remote_preparation_step($job_id, $state);
+    }
+
+    /**
+     * @param array<string, mixed> $state
+     * @return array<string, mixed>|\WP_Error
+     */
+    private function process_local_sync_batch(string $job_id, array $state): array|\WP_Error {
+        return $this->run_local_sync_step($job_id, $state);
     }
 
     // ─── 4. Initial Full Update (Force) ─────────────────────
@@ -508,207 +774,6 @@ class Sync_Controller {
         } finally {
             Sync_Lock::release();
         }
-    }
-
-    /**
-     * @param array<string, mixed> $state
-     * @return array<string, mixed>|\WP_Error
-     */
-    private function process_remote_preparation_batch(string $job_id, array $state): array|\WP_Error {
-        $mode_key = isset($state['mode']) && is_string($state['mode']) && $state['mode'] !== ''
-            ? $state['mode']
-            : $this->strategy->get_mode_key();
-        $mode_label = isset($state['mode_label']) && is_string($state['mode_label']) && $state['mode_label'] !== ''
-            ? $state['mode_label']
-            : $this->strategy->get_label();
-        $cursor = isset($state['remote_cursor']) && is_string($state['remote_cursor']) && $state['remote_cursor'] !== ''
-            ? $state['remote_cursor']
-            : null;
-        $remote_batches = max(0, (int) ($state['remote_batches'] ?? 0)) + 1;
-        $remote_totals = $this->normalize_remote_totals($state['remote_totals'] ?? []);
-
-        $this->update_progress($job_id, [
-            'status'     => 'running',
-            'mode'       => $mode_key,
-            'mode_label' => $mode_label,
-            'message'    => $cursor === null
-                ? __('กำลังสแกนวิดีโอต้นทางสำหรับการซิงก์ข้อมูลทั้งหมด...', '7ls-video-publisher')
-                : sprintf(__('กำลังสแกนวิดีโอต้นทาง แบตช์ที่ %d...', '7ls-video-publisher'), $remote_batches),
-            'percent'    => $this->build_remote_prepare_percent($remote_batches, false),
-        ]);
-
-        $payload = [
-            'mode'  => $mode_key,
-            'limit' => self::FULL_SYNC_REMOTE_BATCH_LIMIT,
-        ];
-        if ($cursor !== null) {
-            $payload['cursor'] = $cursor;
-        }
-
-        $response = $this->with_retry(fn () => $this->api->trigger_plugin_sync($payload));
-        if (is_wp_error($response)) {
-            Logger::log("Full sync remote preparation failed: {$response->get_error_message()}", 'error');
-
-            return $this->fail_batch_job($job_id, $response->get_error_message());
-        }
-
-        foreach (array_keys($remote_totals) as $key) {
-            $remote_totals[$key] += max(0, (int) ($response[$key] ?? 0));
-        }
-
-        $next_cursor = isset($response['nextCursor']) && is_string($response['nextCursor']) && $response['nextCursor'] !== ''
-            ? $response['nextCursor']
-            : null;
-
-        $state['mode'] = $mode_key;
-        $state['mode_label'] = $mode_label;
-        $state['remote_batches'] = $remote_batches;
-        $state['remote_cursor'] = $next_cursor;
-        $state['remote_totals'] = $remote_totals;
-
-        if ($next_cursor !== null) {
-            Sync_Lock::set_job_state($job_id, $state);
-            Sync_Lock::refresh_active_job($job_id, 'full_sync');
-
-            $message = sprintf(
-                __('เตรียมข้อมูลต้นทางแบตช์ที่ %1$d แล้ว: สแกน %2$d รายการ สร้าง %3$d รายการ อัปเดต %4$d รายการ กำลังดำเนินการต่อ...', '7ls-video-publisher'),
-                $remote_batches,
-                max(0, (int) ($response['scanned'] ?? 0)),
-                max(0, (int) ($response['created'] ?? 0)),
-                max(0, (int) ($response['updated'] ?? 0))
-            );
-
-            $progress = Sync_Lock::update_progress($job_id, [
-                'status'     => 'running',
-                'mode'       => $mode_key,
-                'mode_label' => $mode_label,
-                'message'    => $message,
-                'percent'    => $this->build_remote_prepare_percent($remote_batches, false),
-            ]);
-
-            return [
-                'job_id'   => $job_id,
-                'phase'    => 'prepare_remote',
-                'batched'  => true,
-                'continue' => true,
-                'progress' => $progress,
-            ];
-        }
-
-        $this->engine->clear_sync_transients();
-        $state['phase'] = 'sync_local';
-        $state['page'] = 1;
-        $state['per_page'] = max(1, (int) ($state['per_page'] ?? 50));
-        Sync_Lock::set_job_state($job_id, $state);
-        Sync_Lock::refresh_active_job($job_id, 'full_sync');
-
-        $progress = Sync_Lock::update_progress($job_id, [
-            'status'       => 'running',
-            'mode'         => $mode_key,
-            'mode_label'   => $mode_label,
-            'message'      => __('การเตรียมข้อมูลฝั่งเซิร์ฟเวอร์เสร็จแล้ว กำลังเริ่มนำเข้าข้อมูลใน WordPress...', '7ls-video-publisher'),
-            'percent'      => self::FULL_SYNC_LOCAL_PROGRESS_MIN,
-            'current_item' => '',
-            'pending_items' => [],
-        ]);
-
-        return [
-            'job_id'   => $job_id,
-            'phase'    => 'sync_local',
-            'batched'  => true,
-            'continue' => true,
-            'progress' => $progress,
-        ];
-    }
-
-    /**
-     * @param array<string, mixed> $state
-     * @return array<string, mixed>|\WP_Error
-     */
-    private function process_local_sync_batch(string $job_id, array $state): array|\WP_Error {
-        $batch = $this->engine->sync_batch([
-            'full_sync'            => true,
-            'bypass_cache'         => true,
-            'page'                 => max(1, (int) ($state['page'] ?? 1)),
-            'per_page'             => max(1, (int) ($state['per_page'] ?? 50)),
-            'processed'            => max(0, (int) ($state['processed'] ?? 0)),
-            'created'              => max(0, (int) ($state['created'] ?? 0)),
-            'updated'              => max(0, (int) ($state['updated'] ?? 0)),
-            'errors'               => max(0, (int) ($state['errors'] ?? 0)),
-            'recent_results'       => isset($state['recent_results']) && is_array($state['recent_results']) ? $state['recent_results'] : [],
-            'error_items'          => isset($state['error_items']) && is_array($state['error_items']) ? $state['error_items'] : [],
-            'total_items'          => $state['total_items'] ?? null,
-            'total_pages'          => $state['total_pages'] ?? null,
-            'progress_job_id'      => $job_id,
-            'progress_min_percent' => self::FULL_SYNC_LOCAL_PROGRESS_MIN,
-            'progress_max_percent' => self::FULL_SYNC_LOCAL_PROGRESS_MAX,
-        ]);
-
-        if (is_wp_error($batch)) {
-            Logger::log("Full sync local batch failed: {$batch->get_error_message()}", 'error');
-
-            return $this->fail_batch_job($job_id, $batch->get_error_message());
-        }
-
-        $state['phase'] = 'sync_local';
-        $state['page'] = !empty($batch['has_more']) ? max(1, (int) ($batch['next_page'] ?? 1)) : max(1, (int) ($batch['page'] ?? ($state['page'] ?? 1)));
-        $state['per_page'] = max(1, (int) ($batch['per_page'] ?? ($state['per_page'] ?? 50)));
-        $state['processed'] = max(0, (int) ($batch['processed'] ?? 0));
-        $state['created'] = max(0, (int) ($batch['created'] ?? 0));
-        $state['updated'] = max(0, (int) ($batch['updated'] ?? 0));
-        $state['errors'] = max(0, (int) ($batch['errors'] ?? 0));
-        $state['total_items'] = isset($batch['total_items']) ? $batch['total_items'] : null;
-        $state['total_pages'] = isset($batch['total_pages']) ? $batch['total_pages'] : null;
-        $state['recent_results'] = isset($batch['recent_results']) && is_array($batch['recent_results']) ? $batch['recent_results'] : [];
-        $state['error_items'] = isset($batch['error_items']) && is_array($batch['error_items']) ? $batch['error_items'] : [];
-
-        if (!empty($batch['has_more'])) {
-            Sync_Lock::set_job_state($job_id, $state);
-            Sync_Lock::refresh_active_job($job_id, 'full_sync');
-
-            return [
-                'job_id'   => $job_id,
-                'phase'    => 'sync_local',
-                'batched'  => true,
-                'continue' => true,
-                'progress' => Sync_Lock::get_progress($job_id),
-            ];
-        }
-
-        $duration = round(microtime(true) - (float) ($state['started_at_micro'] ?? microtime(true)), 2);
-        $summary = [
-            'processed' => $state['processed'],
-            'created'   => $state['created'],
-            'updated'   => $state['updated'],
-            'errors'    => $state['errors'],
-            'duration'  => $duration,
-        ];
-
-        update_option('sevenls_vp_last_sync', current_time('mysql'));
-        update_option('sevenls_vp_last_full_sync', current_time('mysql'));
-
-        Logger::log(sprintf(
-            'Batched full sync completed: %d processed (%d created, %d updated, %d errors) in %.2fs',
-            $summary['processed'],
-            $summary['created'],
-            $summary['updated'],
-            $summary['errors'],
-            $summary['duration']
-        ));
-
-        $this->complete_progress($job_id, __('ซิงก์ข้อมูลทั้งหมดเสร็จแล้ว', '7ls-video-publisher'), $summary);
-        Sync_Lock::clear_job_state($job_id);
-        Sync_Lock::release_active_job($job_id);
-
-        return [
-            'job_id'   => $job_id,
-            'phase'    => 'completed',
-            'batched'  => true,
-            'continue' => false,
-            'result'   => $summary,
-            'progress' => Sync_Lock::get_progress($job_id),
-            'message'  => __('ซิงก์ข้อมูลทั้งหมดเสร็จแล้ว', '7ls-video-publisher'),
-        ];
     }
 
     /**
