@@ -23,6 +23,7 @@ class Sync_Controller {
     private const FULL_SYNC_REMOTE_BATCH_LIMIT = 1000;
     private const FULL_SYNC_LOCAL_PROGRESS_MIN = 35;
     private const FULL_SYNC_LOCAL_PROGRESS_MAX = 99;
+    private const FULL_SYNC_START_WARMUP_SECONDS = 3.0;
     private const FULL_SYNC_REQUEST_TIME_BUDGET_SECONDS = 12.0;
     private const FULL_SYNC_REQUEST_TIME_BUFFER_SECONDS = 0.75;
     private const MAX_RETRIES      = 3;
@@ -272,6 +273,7 @@ class Sync_Controller {
 
         $this->update_progress($normalized_job_id, [
             'status'     => 'running',
+            'phase'      => 'prepare_remote',
             'mode'       => $mode_key,
             'mode_label' => $mode_label,
             'message'    => __('กำลังเตรียมซิงก์ข้อมูลทั้งหมดแบบแบ่งแบตช์...', '7ls-video-publisher'),
@@ -323,11 +325,20 @@ class Sync_Controller {
     }
 
     /**
+     * Run a short warm-up batch so the UI can leave the queued state quickly.
+     *
+     * @return array<string, mixed>|\WP_Error
+     */
+    public function warm_up_full_sync_batch(string $job_id): array|\WP_Error {
+        return $this->process_full_sync_batch($job_id, self::FULL_SYNC_START_WARMUP_SECONDS);
+    }
+
+    /**
      * Process a batched full sync request within a bounded time budget.
      *
      * @return array<string, mixed>|\WP_Error
      */
-    public function process_full_sync_batch(string $job_id): array|\WP_Error {
+    public function process_full_sync_batch(string $job_id, ?float $time_budget_seconds = null): array|\WP_Error {
         $normalized_job_id = sanitize_key($job_id);
         if ($normalized_job_id === '') {
             return new \WP_Error('invalid_job_id', __('ไม่พบรหัสงานซิงก์', '7ls-video-publisher'));
@@ -384,6 +395,7 @@ class Sync_Controller {
             Sync_Lock::refresh_active_job($normalized_job_id, 'full_sync');
 
             $request_started_at = microtime(true);
+            $request_time_budget = $this->get_full_sync_request_time_budget($time_budget_seconds);
             $steps_completed = 0;
 
             do {
@@ -416,7 +428,7 @@ class Sync_Controller {
                 $state = isset($step_result['state']) && is_array($step_result['state']) ? $step_result['state'] : $state;
             } while (
                 !empty($step_result['continue'])
-                && $this->should_continue_full_sync_batch_loop($request_started_at)
+                && $this->should_continue_full_sync_batch_loop($request_started_at, $request_time_budget)
             );
 
             return [
@@ -458,6 +470,7 @@ class Sync_Controller {
 
         $this->update_progress($job_id, [
             'status'     => 'running',
+            'phase'      => 'prepare_remote',
             'mode'       => $mode_key,
             'mode_label' => $mode_label,
             'message'    => $cursor === null
@@ -509,6 +522,7 @@ class Sync_Controller {
 
             Sync_Lock::update_progress($job_id, [
                 'status'     => 'running',
+                'phase'      => 'prepare_remote',
                 'mode'       => $mode_key,
                 'mode_label' => $mode_label,
                 'message'    => $message,
@@ -531,6 +545,7 @@ class Sync_Controller {
 
         Sync_Lock::update_progress($job_id, [
             'status'        => 'running',
+            'phase'         => 'sync_local',
             'mode'          => $mode_key,
             'mode_label'    => $mode_label,
             'message'       => __('การเตรียมข้อมูลฝั่งเซิร์ฟเวอร์เสร็จแล้ว กำลังเริ่มนำเข้าข้อมูลใน WordPress...', '7ls-video-publisher'),
@@ -633,15 +648,18 @@ class Sync_Controller {
         ];
     }
 
-    private function should_continue_full_sync_batch_loop(float $started_at): bool {
+    private function should_continue_full_sync_batch_loop(float $started_at, float $budget): bool {
         $elapsed = microtime(true) - $started_at;
-        $budget = $this->get_full_sync_request_time_budget();
         $continue_until = max(1.0, $budget - self::FULL_SYNC_REQUEST_TIME_BUFFER_SECONDS);
 
         return $elapsed < $continue_until;
     }
 
-    private function get_full_sync_request_time_budget(): float {
+    private function get_full_sync_request_time_budget(?float $override_budget = null): float {
+        if ($override_budget !== null) {
+            return max(1.5, min(15.0, $override_budget));
+        }
+
         $budget = (float) apply_filters(
             'sevenls_vp_full_sync_request_time_budget',
             self::FULL_SYNC_REQUEST_TIME_BUDGET_SECONDS

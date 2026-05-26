@@ -222,8 +222,8 @@ if (!array_key_exists($active_tab, $tabs)) {
                 </div>
 
                 <div class="sevenls-vp-sync-modal__status-row">
-                    <span class="sevenls-vp-sync-modal__status sevenls-vp-sync-modal__status--queued" data-sync-modal-status><?php esc_html_e('รอคิว', '7ls-video-publisher'); ?></span>
-                    <span class="sevenls-vp-sync-modal__percent" data-sync-modal-percent>0%</span>
+                    <span class="sevenls-vp-sync-modal__status sevenls-vp-sync-modal__status--running" data-sync-modal-status><?php esc_html_e('กำลังทำงาน', '7ls-video-publisher'); ?></span>
+                    <span class="sevenls-vp-sync-modal__percent" data-sync-modal-percent>1%</span>
                 </div>
 
                 <p class="sevenls-vp-sync-modal__message" data-sync-modal-message><?php esc_html_e('กำลังเตรียมการซิงก์...', '7ls-video-publisher'); ?></p>
@@ -271,6 +271,14 @@ if (!array_key_exists($active_tab, $tabs)) {
                     <div class="sevenls-vp-sync-modal__meta-item">
                         <span class="sevenls-vp-sync-modal__meta-label"><?php esc_html_e('โหมด', '7ls-video-publisher'); ?></span>
                         <span class="sevenls-vp-sync-modal__meta-value" data-sync-modal-mode>&mdash;</span>
+                    </div>
+                    <div class="sevenls-vp-sync-modal__meta-item">
+                        <span class="sevenls-vp-sync-modal__meta-label"><?php esc_html_e('ใช้เวลา', '7ls-video-publisher'); ?></span>
+                        <span class="sevenls-vp-sync-modal__meta-value" data-sync-modal-elapsed><?php esc_html_e('0 วินาที', '7ls-video-publisher'); ?></span>
+                    </div>
+                    <div class="sevenls-vp-sync-modal__meta-item">
+                        <span class="sevenls-vp-sync-modal__meta-label"><?php esc_html_e('คาดว่าเสร็จ', '7ls-video-publisher'); ?></span>
+                        <span class="sevenls-vp-sync-modal__meta-value" data-sync-modal-eta><?php esc_html_e('กำลังคำนวณ...', '7ls-video-publisher'); ?></span>
                     </div>
                 </div>
 

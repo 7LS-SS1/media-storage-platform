@@ -177,7 +177,7 @@ class Sync_Lock {
      */
     public static function start_progress(string $job_id, array $state = []): array {
         $record = array_merge(self::progress_defaults($job_id), $state, [
-            'status'     => $state['status'] ?? 'queued',
+            'status'     => $state['status'] ?? 'running',
             'started_at' => time(),
         ]);
 
@@ -322,6 +322,7 @@ class Sync_Lock {
 
         $record['job_id']       = $job_id;
         $record['status']       = sanitize_key((string) $record['status']);
+        $record['phase']        = sanitize_key((string) $record['phase']);
         $record['label']        = sanitize_text_field((string) $record['label']);
         $record['operation']    = sanitize_key((string) $record['operation']);
         $record['message']      = sanitize_text_field((string) $record['message']);
@@ -355,7 +356,8 @@ class Sync_Lock {
     private static function progress_defaults(string $job_id): array {
         return [
             'job_id'       => $job_id,
-            'status'       => 'queued',
+            'status'       => 'running',
+            'phase'        => '',
             'label'        => '',
             'operation'    => '',
             'message'      => '',

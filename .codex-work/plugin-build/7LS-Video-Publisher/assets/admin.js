@@ -157,10 +157,10 @@
             modal.root.dataset.finalState = '';
             modal.title.textContent = label || config.labels.preparing;
             modal.message.textContent = config.labels.preparing;
-            modal.status.textContent = config.labels.queued;
-            modal.status.className = 'sevenls-vp-sync-modal__status sevenls-vp-sync-modal__status--queued';
-            modal.percent.textContent = '0%';
-            modal.progress.style.width = '0%';
+            modal.status.textContent = config.labels.running;
+            modal.status.className = 'sevenls-vp-sync-modal__status sevenls-vp-sync-modal__status--running';
+            modal.percent.textContent = '1%';
+            modal.progress.style.width = '1%';
             modal.completed.textContent = '0';
             modal.created.textContent = '0';
             modal.updated.textContent = '0';
@@ -171,10 +171,12 @@
             modal.mode.textContent = '\u2014';
             modal.alert.hidden = false;
             modal.alert.className = 'sevenls-vp-sync-modal__alert sevenls-vp-sync-modal__alert--info';
-            modal.alertText.textContent = config.labels.running_alert;
+            modal.alertText.textContent = config.labels.starting_alert || config.labels.running_alert;
             modal.pendingCount.textContent = '0';
             modal.resultsCount.textContent = '0';
             modal.errorsCount.textContent = '0';
+            modal.elapsed.textContent = config.labels.elapsed_default || '0 วินาที';
+            modal.eta.textContent = config.labels.eta_calculating || 'กำลังคำนวณ...';
             renderSimpleList(modal.pendingList, [], config.labels.no_pending);
             renderResultList(modal.resultsList, [], config.labels.no_results);
             renderResultList(modal.errorsList, [], config.labels.no_errors);
@@ -227,11 +229,11 @@
             if (status === 'running') {
                 return config.labels.running;
             }
-            return config.labels.queued;
+            return config.labels.running;
         }
 
         function updateModal(progress, fallbackLabel) {
-            var status = progress.status || 'queued';
+            var status = progress.status || 'running';
             var label = progress.label || fallbackLabel || config.labels.preparing;
             var percent = typeof progress.percent === 'number' ? progress.percent : parseInt(progress.percent || '0', 10);
             var completed = typeof progress.completed_items === 'number'
@@ -248,6 +250,7 @@
             var recentResults = Array.isArray(progress.recent_results) ? progress.recent_results : [];
             var errorItems = Array.isArray(progress.error_items) ? progress.error_items : [];
             var currentItem = progress.current_item || '';
+            var timeMetrics = buildTimeMetrics(progress);
 
             modal.title.textContent = label;
             modal.message.textContent = progress.message || config.labels.preparing;
@@ -265,6 +268,8 @@
                 : config.labels.unknown_page;
             modal.total.textContent = totalItems > 0 ? String(totalItems) : config.labels.unknown_total;
             modal.mode.textContent = progress.mode_label || '\u2014';
+            modal.elapsed.textContent = timeMetrics.elapsedText;
+            modal.eta.textContent = timeMetrics.etaText;
             modal.pendingCount.textContent = String(pendingItems.length);
             modal.resultsCount.textContent = String(recentResults.length);
             modal.errorsCount.textContent = String(errorItems.length);
@@ -273,6 +278,100 @@
             renderResultList(modal.errorsList, errorItems, config.labels.no_errors);
             modal.errorsWrap.hidden = errorItems.length === 0;
             updateAlert(status, progress.message || config.labels.preparing);
+        }
+
+        function buildTimeMetrics(progress) {
+            var nowSeconds = Date.now() / 1000;
+            var startedAt = parseInt(progress.started_at || '0', 10) || 0;
+            var finishedAt = parseInt(progress.finished_at || '0', 10) || 0;
+            var duration = progress.duration !== null && progress.duration !== undefined
+                ? parseFloat(progress.duration) || 0
+                : 0;
+            var handled = parseInt(progress.handled || progress.completed_items || progress.processed || '0', 10) || 0;
+            var totalItems = progress.total_items !== null && progress.total_items !== undefined
+                ? parseInt(progress.total_items, 10) || 0
+                : 0;
+            var percent = typeof progress.percent === 'number' ? progress.percent : parseInt(progress.percent || '0', 10) || 0;
+            var phase = progress.phase || '';
+            var elapsedSeconds;
+            var etaSeconds = null;
+            var etaText = config.labels.eta_calculating || 'กำลังคำนวณ...';
+
+            if (finishedAt > 0) {
+                elapsedSeconds = duration > 0 ? duration : Math.max(0, finishedAt - startedAt);
+            } else if (startedAt > 0) {
+                elapsedSeconds = Math.max(0, nowSeconds - startedAt);
+            } else {
+                elapsedSeconds = 0;
+            }
+
+            if (progress.status === 'completed') {
+                etaText = config.labels.eta_done || 'เสร็จแล้ว';
+            } else if (progress.status === 'error') {
+                etaText = '\u2014';
+            } else if (handled > 0 && totalItems > handled && elapsedSeconds > 0) {
+                etaSeconds = Math.ceil((elapsedSeconds / handled) * (totalItems - handled));
+            } else if (phase !== 'prepare_remote' && percent >= 5 && percent < 100 && elapsedSeconds > 0) {
+                etaSeconds = Math.ceil((elapsedSeconds / percent) * (100 - percent));
+            }
+
+            if (etaSeconds !== null) {
+                if (etaSeconds <= 5) {
+                    etaText = config.labels.eta_soon || 'อีกไม่กี่วินาที';
+                } else {
+                    etaText = formatEtaTime(nowSeconds + etaSeconds) + ' (' + formatDuration(etaSeconds) + ')';
+                }
+            } else if (progress.status === 'running' && (phase === 'prepare_remote' || percent < 5 || handled === 0)) {
+                etaText = config.labels.eta_calculating || 'กำลังคำนวณ...';
+            } else if (progress.status === 'running') {
+                etaText = config.labels.eta_unavailable || 'ยังประเมินไม่ได้';
+            }
+
+            return {
+                elapsedText: formatDuration(elapsedSeconds),
+                etaText: etaText
+            };
+        }
+
+        function formatDuration(totalSeconds) {
+            var seconds = Math.max(0, Math.round(totalSeconds || 0));
+            var hours;
+            var minutes;
+
+            if (seconds < 60) {
+                return seconds + ' วินาที';
+            }
+
+            if (seconds < 3600) {
+                minutes = Math.floor(seconds / 60);
+                seconds = seconds % 60;
+                if (seconds === 0) {
+                    return minutes + ' นาที';
+                }
+                return minutes + ' นาที ' + seconds + ' วินาที';
+            }
+
+            hours = Math.floor(seconds / 3600);
+            minutes = Math.floor((seconds % 3600) / 60);
+
+            if (minutes === 0) {
+                return hours + ' ชม.';
+            }
+
+            return hours + ' ชม. ' + minutes + ' นาที';
+        }
+
+        function formatEtaTime(timestampSeconds) {
+            var date = new Date(timestampSeconds * 1000);
+
+            try {
+                return date.toLocaleTimeString(undefined, {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                }) + ' น.';
+            } catch (error) {
+                return date.getHours() + ':' + String(date.getMinutes()).padStart(2, '0') + ' น.';
+            }
         }
 
         function recordProgressHeartbeat(state, progress) {
@@ -351,6 +450,7 @@
                 label: state.label,
                 message: message || config.labels.error,
                 percent: 100,
+                phase: '',
                 completed_items: 0,
                 created: 0,
                 updated: 0,
@@ -567,6 +667,20 @@
             });
         }
 
+        function startProgressObservers(state) {
+            if (!state || state.finalized || state.pollTimer) {
+                return;
+            }
+
+            state.pollTimer = window.setInterval(function () {
+                if (maybeFailStalledSync(state)) {
+                    return;
+                }
+
+                pollProgress(state);
+            }, parseInt(config.syncPollInterval || '1000', 10));
+        }
+
         forms.forEach(function (form) {
             form.addEventListener('submit', function (event) {
                 var confirmMessage;
@@ -596,6 +710,7 @@
                     batchTimer: null,
                     batchRequestInFlight: false,
                     isBatch: false,
+                    delayInitialPoll: (form.getAttribute('data-sync-action') || '') === 'full_sync',
                     lastProgressAt: Date.now(),
                     lastProgressSignature: '',
                     finalized: false
@@ -606,15 +721,10 @@
                 setSyncButtonsDisabled(true);
                 setCardLoading(form, true);
 
-                state.pollTimer = window.setInterval(function () {
-                    if (maybeFailStalledSync(state)) {
-                        return;
-                    }
-
+                if (!state.delayInitialPoll) {
+                    startProgressObservers(state);
                     pollProgress(state);
-                }, parseInt(config.syncPollInterval || '1000', 10));
-
-                pollProgress(state);
+                }
 
                 request('sevenls_vp_start_sync', {
                     sync_action: state.syncAction,
@@ -624,6 +734,8 @@
                         failSync(state, result && result.data && result.data.message ? result.data.message : (config.labels.sync_failed || 'การซิงก์ล้มเหลว'));
                         return;
                     }
+
+                    startProgressObservers(state);
 
                     if (result.data && result.data.progress) {
                         updateModal(result.data.progress, state.label);
@@ -635,11 +747,12 @@
                             finalizeSync(state, result.data.progress, { shouldReload: false });
                         } else if (result.data.batched) {
                             state.isBatch = true;
-                            scheduleNextBatch(state, 25);
+                            scheduleNextBatch(state, 0);
                         }
                     } else if (result.data && result.data.batched) {
+                        startProgressObservers(state);
                         state.isBatch = true;
-                        scheduleNextBatch(state, 25);
+                        scheduleNextBatch(state, 0);
                     }
                 }).catch(function () {
                     failSync(state, config.labels.network_start || 'เครือข่ายขัดข้องระหว่างเริ่มการซิงก์');
@@ -684,6 +797,8 @@
             page: root.querySelector('[data-sync-modal-page]'),
             total: root.querySelector('[data-sync-modal-total]'),
             mode: root.querySelector('[data-sync-modal-mode]'),
+            elapsed: root.querySelector('[data-sync-modal-elapsed]'),
+            eta: root.querySelector('[data-sync-modal-eta]'),
             pendingCount: root.querySelector('[data-sync-modal-pending-count]'),
             pendingList: root.querySelector('[data-sync-modal-pending-list]'),
             resultsCount: root.querySelector('[data-sync-modal-results-count]'),

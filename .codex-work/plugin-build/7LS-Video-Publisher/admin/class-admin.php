@@ -84,15 +84,21 @@ class SevenLS_VP_Admin {
             'syncStaleThreshold' => 180000,
             'labels'           => [
                 'preparing'      => __('กำลังเตรียมการซิงก์...', '7ls-video-publisher'),
-                'queued'         => __('รอคิว', '7ls-video-publisher'),
+                'queued'         => __('กำลังเริ่มต้น', '7ls-video-publisher'),
                 'running'        => __('กำลังทำงาน', '7ls-video-publisher'),
                 'completed'      => __('เสร็จสิ้น', '7ls-video-publisher'),
                 'error'          => __('ผิดพลาด', '7ls-video-publisher'),
+                'starting_alert' => __('กำลังเริ่มงานแบตช์แรก...', '7ls-video-publisher'),
                 'stalled'        => __('การซิงก์หยุดส่งความคืบหน้า คำขอปัจจุบันอาจหมดเวลาในการประมวลผล', '7ls-video-publisher'),
                 'close'          => __('ปิด', '7ls-video-publisher'),
                 'close_refresh'  => __('ปิดและรีเฟรช', '7ls-video-publisher'),
                 'unknown_total'  => __('ไม่ทราบ', '7ls-video-publisher'),
                 'unknown_page'   => __('กำลังประมวลผล', '7ls-video-publisher'),
+                'elapsed_default' => __('0 วินาที', '7ls-video-publisher'),
+                'eta_calculating' => __('กำลังคำนวณ...', '7ls-video-publisher'),
+                'eta_done'        => __('เสร็จแล้ว', '7ls-video-publisher'),
+                'eta_soon'        => __('อีกไม่กี่วินาที', '7ls-video-publisher'),
+                'eta_unavailable' => __('ยังประเมินไม่ได้', '7ls-video-publisher'),
                 'success_alert'  => __('ซิงก์เสร็จเรียบร้อยแล้ว', '7ls-video-publisher'),
                 'running_alert'  => __('กำลังซิงก์ข้อมูลอยู่', '7ls-video-publisher'),
                 'waiting_item'   => __('กำลังรอรายการแรก...', '7ls-video-publisher'),
@@ -208,10 +214,12 @@ class SevenLS_VP_Admin {
         }
 
         SevenLS_VP\Sync_Lock::start_progress($job_id, [
+            'status'    => 'running',
+            'phase'     => 'starting',
             'label'     => $config['operation_label'],
             'operation' => $sync_action,
             'message'   => sprintf(__('กำลังเตรียม %s...', '7ls-video-publisher'), $config['operation_label']),
-            'percent'   => 0,
+            'percent'   => 1,
         ]);
 
         ignore_user_abort(true);
@@ -230,14 +238,26 @@ class SevenLS_VP_Admin {
                 ], 500);
             }
 
+            $warmup = $controller->warm_up_full_sync_batch($job_id);
+            if (is_wp_error($warmup)) {
+                SevenLS_VP\Sync_Lock::fail_progress($job_id, $warmup->get_error_message());
+
+                wp_send_json_error([
+                    'job_id'   => $job_id,
+                    'message'  => $warmup->get_error_message(),
+                    'progress' => SevenLS_VP\Sync_Lock::get_progress($job_id),
+                ], 500);
+            }
+
             wp_send_json_success([
                 'job_id'          => $job_id,
-                'message'         => $outcome['message'] ?? sprintf(__('กำลังเตรียม %s...', '7ls-video-publisher'), $config['operation_label']),
+                'message'         => $warmup['message'] ?? $outcome['message'] ?? sprintf(__('กำลังเตรียม %s...', '7ls-video-publisher'), $config['operation_label']),
                 'operation_label' => $config['operation_label'],
-                'progress'        => SevenLS_VP\Sync_Lock::get_progress($job_id),
+                'progress'        => $warmup['progress'] ?? SevenLS_VP\Sync_Lock::get_progress($job_id),
                 'batched'         => true,
-                'phase'           => $outcome['phase'] ?? 'prepare_remote',
-                'continue'        => !empty($outcome['continue']),
+                'phase'           => $warmup['phase'] ?? $outcome['phase'] ?? 'prepare_remote',
+                'continue'        => !empty($warmup['continue']),
+                'result'          => $warmup['result'] ?? null,
             ]);
         }
 
@@ -327,7 +347,8 @@ class SevenLS_VP_Admin {
         if ($progress === null) {
             $progress = [
                 'job_id'       => $job_id,
-                'status'       => 'queued',
+                'status'       => 'running',
+                'phase'        => 'starting',
                 'message'      => __('กำลังเตรียมการซิงก์...', '7ls-video-publisher'),
                 'label'        => '',
                 'operation'    => '',
