@@ -11,8 +11,10 @@ class Sync_Lock {
 
     private const TRANSIENT_KEY = 'sevenls_vp_sync_lock';
     private const TTL = 600; // 10 minutes max
+    private const LOCK_STALE_SECONDS       = 20;
     private const ACTIVE_JOB_TRANSIENT_KEY = 'sevenls_vp_sync_active_job';
     private const ACTIVE_JOB_TTL           = 3600;
+    private const ACTIVE_JOB_STALE_SECONDS = 30;
     private const PROGRESS_TRANSIENT_PREFIX = 'sevenls_vp_sync_progress_';
     private const JOB_STATE_TRANSIENT_PREFIX = 'sevenls_vp_sync_job_state_';
     private const PROGRESS_ACTIVE_TTL       = 1800;
@@ -167,6 +169,65 @@ class Sync_Lock {
         if (($existing['job_id'] ?? '') === sanitize_key($job_id)) {
             delete_transient(self::ACTIVE_JOB_TRANSIENT_KEY);
         }
+    }
+
+    /**
+     * Clear abandoned sync markers so a new sync can start immediately.
+     *
+     * @return bool True when stale state was released.
+     */
+    public static function cleanup_stale_state(): bool {
+        $released = false;
+        $now = time();
+        $lock_info = self::get_info();
+
+        if (is_array($lock_info) && ($now - max(0, (int) ($lock_info['time'] ?? 0))) > self::LOCK_STALE_SECONDS) {
+            self::release();
+            $released = true;
+            $lock_info = null;
+        }
+
+        $active_job = self::get_active_job();
+        if ($active_job === null) {
+            return $released;
+        }
+
+        $job_id = sanitize_key((string) ($active_job['job_id'] ?? ''));
+        if ($job_id === '') {
+            self::release_active_job();
+            return true;
+        }
+
+        $state = self::get_job_state($job_id);
+        $progress = self::get_progress($job_id);
+        $status = is_array($progress) ? sanitize_key((string) ($progress['status'] ?? '')) : '';
+
+        if (in_array($status, ['completed', 'error'], true)) {
+            self::clear_job_state($job_id);
+            self::release_active_job($job_id);
+            return true;
+        }
+
+        $latest_activity = self::get_latest_activity_timestamp($active_job, $state, $progress, $lock_info);
+        if ($latest_activity <= 0) {
+            self::clear_job_state($job_id);
+            self::release_active_job($job_id);
+            return true;
+        }
+
+        if (($now - $latest_activity) <= self::ACTIVE_JOB_STALE_SECONDS) {
+            return $released;
+        }
+
+        if ($progress !== null) {
+            self::fail_progress($job_id, __('งานซิงก์ก่อนหน้าถูกยกเลิกอัตโนมัติ เพราะไม่มีความคืบหน้าเป็นเวลานาน', '7ls-video-publisher'));
+        }
+
+        self::clear_job_state($job_id);
+        self::release_active_job($job_id);
+        self::release();
+
+        return true;
     }
 
     /**
@@ -390,6 +451,21 @@ class Sync_Lock {
 
     private static function job_state_key(string $job_id): string {
         return self::JOB_STATE_TRANSIENT_PREFIX . sanitize_key($job_id);
+    }
+
+    /**
+     * @param array<string, mixed>|null $active_job
+     * @param array<string, mixed>|null $state
+     * @param array<string, mixed>|null $progress
+     * @param array<string, mixed>|null $lock_info
+     */
+    private static function get_latest_activity_timestamp(?array $active_job, ?array $state, ?array $progress, ?array $lock_info): int {
+        return max(
+            max(0, (int) ($active_job['updated_at'] ?? 0)),
+            max(0, (int) ($state['updated_at'] ?? 0)),
+            max(0, (int) ($progress['updated_at'] ?? 0)),
+            max(0, (int) ($lock_info['time'] ?? 0))
+        );
     }
 
     /**

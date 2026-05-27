@@ -3,7 +3,7 @@
  * Plugin Name: 7M Video Publisher
  * Plugin URI: https://example.com/7ls-video-publisher
  * Description: Syncs videos from external media-storage-api and publishes them into WordPress using the active site profile
- * Version: 2.0.4
+ * Version: 2.0.5
  * Requires at least: 6.0
  * Requires PHP: 8.0
  * Author: 7LS
@@ -20,7 +20,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('SEVENLS_VP_VERSION', '2.0.4');
+define('SEVENLS_VP_VERSION', '2.0.5');
 define('SEVENLS_VP_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('SEVENLS_VP_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('SEVENLS_VP_PLUGIN_BASENAME', plugin_basename(__FILE__));

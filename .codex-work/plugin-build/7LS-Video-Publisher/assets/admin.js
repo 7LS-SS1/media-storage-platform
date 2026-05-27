@@ -710,7 +710,7 @@
                     batchTimer: null,
                     batchRequestInFlight: false,
                     isBatch: false,
-                    delayInitialPoll: (form.getAttribute('data-sync-action') || '') === 'full_sync',
+                    delayInitialPoll: true,
                     lastProgressAt: Date.now(),
                     lastProgressSignature: '',
                     finalized: false

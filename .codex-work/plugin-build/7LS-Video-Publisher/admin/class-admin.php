@@ -61,19 +61,24 @@ class SevenLS_VP_Admin {
         if (strpos($hook, 'sevenls-video-publisher') === false) {
             return;
         }
+
+        $admin_css_path = SEVENLS_VP_PLUGIN_DIR . 'assets/admin.css';
+        $admin_js_path = SEVENLS_VP_PLUGIN_DIR . 'assets/admin.js';
+        $admin_css_ver = file_exists($admin_css_path) ? (string) filemtime($admin_css_path) : SEVENLS_VP_VERSION;
+        $admin_js_ver = file_exists($admin_js_path) ? (string) filemtime($admin_js_path) : SEVENLS_VP_VERSION;
         
         wp_enqueue_style(
             'sevenls-vp-admin',
             SEVENLS_VP_PLUGIN_URL . 'assets/admin.css',
             [],
-            SEVENLS_VP_VERSION
+            $admin_css_ver
         );
 
         wp_enqueue_script(
             'sevenls-vp-admin',
             SEVENLS_VP_PLUGIN_URL . 'assets/admin.js',
             [],
-            SEVENLS_VP_VERSION,
+            $admin_js_ver,
             true
         );
 
@@ -224,44 +229,8 @@ class SevenLS_VP_Admin {
 
         ignore_user_abort(true);
 
-        if ($sync_action === 'full_sync') {
-            $controller = new SevenLS_VP\Sync_Controller();
-            $outcome = $controller->start_full_sync_batch($job_id);
-
-            if (is_wp_error($outcome)) {
-                SevenLS_VP\Sync_Lock::fail_progress($job_id, $outcome->get_error_message());
-
-                wp_send_json_error([
-                    'job_id'   => $job_id,
-                    'message'  => $outcome->get_error_message(),
-                    'progress' => SevenLS_VP\Sync_Lock::get_progress($job_id),
-                ], 500);
-            }
-
-            $warmup = $controller->warm_up_full_sync_batch($job_id);
-            if (is_wp_error($warmup)) {
-                SevenLS_VP\Sync_Lock::fail_progress($job_id, $warmup->get_error_message());
-
-                wp_send_json_error([
-                    'job_id'   => $job_id,
-                    'message'  => $warmup->get_error_message(),
-                    'progress' => SevenLS_VP\Sync_Lock::get_progress($job_id),
-                ], 500);
-            }
-
-            wp_send_json_success([
-                'job_id'          => $job_id,
-                'message'         => $warmup['message'] ?? $outcome['message'] ?? sprintf(__('กำลังเตรียม %s...', '7ls-video-publisher'), $config['operation_label']),
-                'operation_label' => $config['operation_label'],
-                'progress'        => $warmup['progress'] ?? SevenLS_VP\Sync_Lock::get_progress($job_id),
-                'batched'         => true,
-                'phase'           => $warmup['phase'] ?? $outcome['phase'] ?? 'prepare_remote',
-                'continue'        => !empty($warmup['continue']),
-                'result'          => $warmup['result'] ?? null,
-            ]);
-        }
-
-        $outcome = $this->perform_sync_action($sync_action, $job_id);
+        $controller = new SevenLS_VP\Sync_Controller();
+        $outcome = $controller->start_batched_sync($job_id, $sync_action);
 
         if (is_wp_error($outcome)) {
             SevenLS_VP\Sync_Lock::fail_progress($job_id, $outcome->get_error_message());
@@ -273,12 +242,26 @@ class SevenLS_VP_Admin {
             ], 500);
         }
 
+        $warmup = $controller->warm_up_sync_batch($job_id);
+        if (is_wp_error($warmup)) {
+            SevenLS_VP\Sync_Lock::fail_progress($job_id, $warmup->get_error_message());
+
+            wp_send_json_error([
+                'job_id'   => $job_id,
+                'message'  => $warmup->get_error_message(),
+                'progress' => SevenLS_VP\Sync_Lock::get_progress($job_id),
+            ], 500);
+        }
+
         wp_send_json_success([
             'job_id'          => $job_id,
-            'message'         => $outcome['message'],
-            'operation_label' => $outcome['operation_label'],
-            'result'          => $outcome['result'],
-            'progress'        => SevenLS_VP\Sync_Lock::get_progress($job_id),
+            'message'         => $warmup['message'] ?? $outcome['message'] ?? sprintf(__('กำลังเตรียม %s...', '7ls-video-publisher'), $config['operation_label']),
+            'operation_label' => $config['operation_label'],
+            'progress'        => $warmup['progress'] ?? SevenLS_VP\Sync_Lock::get_progress($job_id),
+            'batched'         => true,
+            'phase'           => $warmup['phase'] ?? $outcome['phase'] ?? 'sync_local',
+            'continue'        => !empty($warmup['continue']),
+            'result'          => $warmup['result'] ?? null,
         ]);
     }
 
@@ -302,7 +285,7 @@ class SevenLS_VP_Admin {
         }
 
         $controller = new SevenLS_VP\Sync_Controller();
-        $result = $controller->process_full_sync_batch($job_id);
+        $result = $controller->process_batched_sync($job_id);
 
         if (is_wp_error($result)) {
             wp_send_json_error([

@@ -244,6 +244,114 @@ class Sync_Controller {
     }
 
     /**
+     * Queue a batched sync job for AJAX-driven processing.
+     *
+     * @return array<string, mixed>|\WP_Error
+     */
+    public function start_batched_sync(string $job_id, string $operation): array|\WP_Error {
+        if ($operation === 'full_sync') {
+            return $this->start_full_sync_batch($job_id);
+        }
+
+        $normalized_job_id = sanitize_key($job_id);
+        $normalized_operation = sanitize_key($operation);
+        if ($normalized_job_id === '') {
+            return new \WP_Error('invalid_job_id', __('ไม่พบรหัสงานซิงก์', '7ls-video-publisher'));
+        }
+
+        $mode_key   = $this->strategy->get_mode_key();
+        $mode_label = $this->strategy->get_label();
+
+        $active_job_error = $this->ensure_no_competing_active_job($normalized_job_id);
+        if (is_wp_error($active_job_error)) {
+            $this->fail_progress($normalized_job_id, $active_job_error->get_error_message());
+            return $active_job_error;
+        }
+
+        if (!Sync_Lock::claim_active_job($normalized_job_id, $normalized_operation)) {
+            $error = new \WP_Error('sync_locked', __('มีงานซิงก์อื่นอยู่ในคิวหรือกำลังทำงานอยู่ กรุณารอสักครู่', '7ls-video-publisher'));
+            $this->fail_progress($normalized_job_id, $error->get_error_message());
+            return $error;
+        }
+
+        $state = $this->build_windowed_batch_state($normalized_job_id, $normalized_operation, $mode_key, $mode_label);
+        if (is_wp_error($state)) {
+            return $this->fail_batch_job($normalized_job_id, $state->get_error_message());
+        }
+
+        Logger::log("Queued batched {$normalized_operation} job {$normalized_job_id} (mode: {$mode_key})");
+
+        $this->update_progress($normalized_job_id, [
+            'status'        => 'running',
+            'phase'         => 'sync_local',
+            'mode'          => $mode_key,
+            'mode_label'    => $mode_label,
+            'message'       => $this->get_batched_initial_message($normalized_operation),
+            'percent'       => (int) ($state['progress_min_percent'] ?? 5),
+            'current_item'  => '',
+            'pending_items' => [],
+            'recent_results'=> [],
+            'error_items'   => [],
+        ]);
+
+        Sync_Lock::clear_job_state($normalized_job_id);
+        Sync_Lock::set_job_state($normalized_job_id, $state);
+
+        return [
+            'job_id'   => $normalized_job_id,
+            'phase'    => 'sync_local',
+            'batched'  => true,
+            'continue' => true,
+            'message'  => $this->get_batched_initial_message($normalized_operation),
+            'progress' => Sync_Lock::get_progress($normalized_job_id),
+        ];
+    }
+
+    /**
+     * Run a short warm-up batch for any AJAX-driven sync.
+     *
+     * @return array<string, mixed>|\WP_Error
+     */
+    public function warm_up_sync_batch(string $job_id): array|\WP_Error {
+        return $this->process_batched_sync($job_id, self::FULL_SYNC_START_WARMUP_SECONDS);
+    }
+
+    /**
+     * Process the next batched sync request.
+     *
+     * @return array<string, mixed>|\WP_Error
+     */
+    public function process_batched_sync(string $job_id, ?float $time_budget_seconds = null): array|\WP_Error {
+        $normalized_job_id = sanitize_key($job_id);
+        if ($normalized_job_id === '') {
+            return new \WP_Error('invalid_job_id', __('ไม่พบรหัสงานซิงก์', '7ls-video-publisher'));
+        }
+
+        $state = Sync_Lock::get_job_state($normalized_job_id);
+        if (!is_array($state)) {
+            $progress = Sync_Lock::get_progress($normalized_job_id);
+            if (is_array($progress) && in_array(($progress['status'] ?? ''), ['completed', 'error'], true)) {
+                return [
+                    'job_id'   => $normalized_job_id,
+                    'phase'    => 'finished',
+                    'batched'  => true,
+                    'continue' => false,
+                    'progress' => $progress,
+                ];
+            }
+
+            return new \WP_Error('sync_job_missing', __('ไม่พบงานซิงก์ กรุณาเริ่มใหม่อีกครั้ง', '7ls-video-publisher'));
+        }
+
+        $operation = sanitize_key((string) ($state['operation'] ?? ''));
+        if ($operation === 'full_sync') {
+            return $this->process_full_sync_batch($normalized_job_id, $time_budget_seconds);
+        }
+
+        return $this->process_windowed_sync_batch($normalized_job_id, $state, $time_budget_seconds);
+    }
+
+    /**
      * Queue a full sync job that will be processed across multiple requests.
      *
      * @return array<string, mixed>|\WP_Error
@@ -455,6 +563,97 @@ class Sync_Controller {
      * @param array<string, mixed> $state
      * @return array<string, mixed>|\WP_Error
      */
+    private function process_windowed_sync_batch(string $job_id, array $state, ?float $time_budget_seconds = null): array|\WP_Error {
+        $operation = sanitize_key((string) ($state['operation'] ?? 'manual_sync'));
+
+        $active_job_error = $this->ensure_no_competing_active_job($job_id);
+        if (is_wp_error($active_job_error)) {
+            return $this->fail_batch_job($job_id, $active_job_error->get_error_message());
+        }
+
+        if (!Sync_Lock::claim_active_job($job_id, $operation)) {
+            return $this->fail_batch_job(
+                $job_id,
+                __('มีงานซิงก์อื่นอยู่ในคิวหรือกำลังทำงานอยู่ กรุณารอสักครู่', '7ls-video-publisher')
+            );
+        }
+
+        if (!Sync_Lock::acquire()) {
+            $active_job = Sync_Lock::get_active_job();
+            if (is_array($active_job) && ($active_job['job_id'] ?? '') === $job_id) {
+                return [
+                    'job_id'   => $job_id,
+                    'phase'    => 'sync_local',
+                    'batched'  => true,
+                    'continue' => true,
+                    'progress' => Sync_Lock::get_progress($job_id),
+                ];
+            }
+
+            return $this->fail_batch_job(
+                $job_id,
+                __('มีคำขอซิงก์อื่นกำลังประมวลผลอยู่ กรุณารอสักครู่แล้วลองใหม่อีกครั้ง', '7ls-video-publisher')
+            );
+        }
+
+        try {
+            Sync_Lock::refresh();
+            Sync_Lock::refresh_active_job($job_id, $operation);
+
+            $request_started_at = microtime(true);
+            $request_time_budget = $this->get_full_sync_request_time_budget($time_budget_seconds);
+            $steps_completed = 0;
+
+            do {
+                $step_result = $this->run_local_sync_step($job_id, $state);
+                if (is_wp_error($step_result)) {
+                    return $step_result;
+                }
+
+                $steps_completed++;
+
+                if (!empty($step_result['completed'])) {
+                    return [
+                        'job_id'   => $job_id,
+                        'phase'    => 'completed',
+                        'batched'  => true,
+                        'continue' => false,
+                        'result'   => $step_result['result'] ?? null,
+                        'progress' => $step_result['progress'] ?? Sync_Lock::get_progress($job_id),
+                        'message'  => $step_result['message'] ?? __('ซิงก์เสร็จแล้ว', '7ls-video-publisher'),
+                    ];
+                }
+
+                $state = isset($step_result['state']) && is_array($step_result['state']) ? $step_result['state'] : $state;
+            } while (
+                !empty($step_result['continue'])
+                && $this->should_continue_full_sync_batch_loop($request_started_at, $request_time_budget)
+            );
+
+            return [
+                'job_id'   => $job_id,
+                'phase'    => 'sync_local',
+                'batched'  => true,
+                'continue' => !empty($step_result['continue']),
+                'progress' => Sync_Lock::get_progress($job_id),
+                'steps'    => $steps_completed,
+            ];
+        } catch (\Throwable $throwable) {
+            Logger::log('Windowed sync batch crashed: ' . $throwable->getMessage(), 'error');
+
+            return $this->fail_batch_job(
+                $job_id,
+                sprintf(__('แบตช์ซิงก์ล้มเหลว: %s', '7ls-video-publisher'), $throwable->getMessage())
+            );
+        } finally {
+            Sync_Lock::release();
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $state
+     * @return array<string, mixed>|\WP_Error
+     */
     private function run_remote_preparation_step(string $job_id, array $state): array|\WP_Error {
         $mode_key = isset($state['mode']) && is_string($state['mode']) && $state['mode'] !== ''
             ? $state['mode']
@@ -566,9 +765,18 @@ class Sync_Controller {
      * @return array<string, mixed>|\WP_Error
      */
     private function run_local_sync_step(string $job_id, array $state): array|\WP_Error {
+        $operation = sanitize_key((string) ($state['operation'] ?? 'full_sync'));
+        $is_full_sync = !empty($state['full_sync']) || $operation === 'full_sync';
+        $since = isset($state['since']) && is_string($state['since']) && $state['since'] !== ''
+            ? $state['since']
+            : null;
+        $progress_min_percent = isset($state['progress_min_percent']) ? (int) $state['progress_min_percent'] : ($is_full_sync ? self::FULL_SYNC_LOCAL_PROGRESS_MIN : 5);
+        $progress_max_percent = isset($state['progress_max_percent']) ? (int) $state['progress_max_percent'] : self::FULL_SYNC_LOCAL_PROGRESS_MAX;
+
         $batch = $this->engine->sync_batch([
-            'full_sync'            => true,
+            'full_sync'            => $is_full_sync,
             'bypass_cache'         => true,
+            'since'                => $since,
             'page'                 => max(1, (int) ($state['page'] ?? 1)),
             'per_page'             => max(1, (int) ($state['per_page'] ?? 50)),
             'processed'            => max(0, (int) ($state['processed'] ?? 0)),
@@ -580,12 +788,12 @@ class Sync_Controller {
             'total_items'          => $state['total_items'] ?? null,
             'total_pages'          => $state['total_pages'] ?? null,
             'progress_job_id'      => $job_id,
-            'progress_min_percent' => self::FULL_SYNC_LOCAL_PROGRESS_MIN,
-            'progress_max_percent' => self::FULL_SYNC_LOCAL_PROGRESS_MAX,
+            'progress_min_percent' => $progress_min_percent,
+            'progress_max_percent' => $progress_max_percent,
         ]);
 
         if (is_wp_error($batch)) {
-            Logger::log("Full sync local batch failed: {$batch->get_error_message()}", 'error');
+            Logger::log("{$operation} local batch failed: {$batch->get_error_message()}", 'error');
 
             return $this->fail_batch_job($job_id, $batch->get_error_message());
         }
@@ -604,7 +812,7 @@ class Sync_Controller {
 
         if (!empty($batch['has_more'])) {
             Sync_Lock::set_job_state($job_id, $state);
-            Sync_Lock::refresh_active_job($job_id, 'full_sync');
+            Sync_Lock::refresh_active_job($job_id, $operation);
 
             return [
                 'state'    => $state,
@@ -623,10 +831,13 @@ class Sync_Controller {
         ];
 
         update_option('sevenls_vp_last_sync', current_time('mysql'));
-        update_option('sevenls_vp_last_full_sync', current_time('mysql'));
+        if ($is_full_sync) {
+            update_option('sevenls_vp_last_full_sync', current_time('mysql'));
+        }
 
         Logger::log(sprintf(
-            'Batched full sync completed: %d processed (%d created, %d updated, %d errors) in %.2fs',
+            'Batched %s completed: %d processed (%d created, %d updated, %d errors) in %.2fs',
+            $operation,
             $summary['processed'],
             $summary['created'],
             $summary['updated'],
@@ -634,7 +845,8 @@ class Sync_Controller {
             $summary['duration']
         ));
 
-        $this->complete_progress($job_id, __('ซิงก์ข้อมูลทั้งหมดเสร็จแล้ว', '7ls-video-publisher'), $summary);
+        $completion_message = $this->get_batched_completion_message($operation);
+        $this->complete_progress($job_id, $completion_message, $summary);
         Sync_Lock::clear_job_state($job_id);
         Sync_Lock::release_active_job($job_id);
 
@@ -645,6 +857,7 @@ class Sync_Controller {
             'completed' => true,
             'result'    => $summary,
             'progress'  => Sync_Lock::get_progress($job_id),
+            'message'   => $completion_message,
         ];
     }
 
@@ -828,7 +1041,72 @@ class Sync_Controller {
         return new \WP_Error('sync_batch_failed', $message);
     }
 
+    /**
+     * @return array<string, mixed>|\WP_Error
+     */
+    private function build_windowed_batch_state(string $job_id, string $operation, string $mode_key, string $mode_label): array|\WP_Error {
+        $since = null;
+
+        if ($operation === 'manual_sync') {
+            $last_sync = get_option('sevenls_vp_last_sync');
+            $twenty_four_hours_ago = gmdate('Y-m-d\TH:i:s\Z', strtotime('-24 hours'));
+
+            if ($last_sync) {
+                $last_ts = strtotime($last_sync);
+                $cap_ts = strtotime('-24 hours');
+                $since = gmdate('Y-m-d\TH:i:s\Z', max((int) $last_ts, (int) $cap_ts));
+            } else {
+                $since = $twenty_four_hours_ago;
+            }
+        } elseif ($operation === 'force_recent_sync') {
+            $current_ts = (int) current_time('timestamp', true);
+            $since = gmdate('Y-m-d\TH:i:s\Z', max(0, $current_ts - self::FORCE_RECENT_WINDOW_SECONDS));
+        } else {
+            return new \WP_Error('invalid_sync_action', __('คำสั่งซิงก์ไม่ถูกต้อง', '7ls-video-publisher'));
+        }
+
+        return [
+            'job_id'               => $job_id,
+            'operation'            => $operation,
+            'phase'                => 'sync_local',
+            'mode'                 => $mode_key,
+            'mode_label'           => $mode_label,
+            'started_at_micro'     => microtime(true),
+            'full_sync'            => false,
+            'since'                => $since,
+            'progress_min_percent' => 5,
+            'progress_max_percent' => 99,
+            'page'                 => 1,
+            'per_page'             => $this->get_local_sync_batch_size(),
+            'processed'            => 0,
+            'created'              => 0,
+            'updated'              => 0,
+            'errors'               => 0,
+            'total_items'          => null,
+            'total_pages'          => null,
+            'recent_results'       => [],
+            'error_items'          => [],
+        ];
+    }
+
+    private function get_batched_initial_message(string $operation): string {
+        return match ($operation) {
+            'manual_sync' => __('กำลังเตรียมซิงก์แบบเพิ่มเฉพาะข้อมูลใหม่...', '7ls-video-publisher'),
+            'force_recent_sync' => __('กำลังเตรียมบังคับซิงก์ย้อนหลัง 2 วัน...', '7ls-video-publisher'),
+            default => __('กำลังเตรียมซิงก์ข้อมูลทั้งหมดแบบแบ่งแบตช์...', '7ls-video-publisher'),
+        };
+    }
+
+    private function get_batched_completion_message(string $operation): string {
+        return match ($operation) {
+            'manual_sync' => __('ซิงก์แบบเพิ่มเฉพาะข้อมูลใหม่เสร็จแล้ว', '7ls-video-publisher'),
+            'force_recent_sync' => __('บังคับซิงก์ย้อนหลัง 2 วันเสร็จแล้ว', '7ls-video-publisher'),
+            default => __('ซิงก์ข้อมูลทั้งหมดเสร็จแล้ว', '7ls-video-publisher'),
+        };
+    }
+
     private function ensure_no_competing_active_job(?string $allowed_job_id = null): ?\WP_Error {
+        Sync_Lock::cleanup_stale_state();
         $active_job = Sync_Lock::get_active_job();
 
         if (!is_array($active_job)) {
@@ -848,7 +1126,7 @@ class Sync_Controller {
         if (
             !Sync_Lock::is_locked()
             && (
-                ($active_operation === 'full_sync' && !is_array($active_state))
+                !is_array($active_state)
                 || in_array($active_status, ['completed', 'error'], true)
             )
         ) {

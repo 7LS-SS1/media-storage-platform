@@ -9,9 +9,9 @@ export default function PluginPage() {
 
   const downloads = {
     plugin: {
-      version: "2.0.4",
-      href: "/downloads/7ls-video-publisher-2.0.4.zip",
-      filename: "7ls-video-publisher-2.0.4.zip",
+      version: "2.0.5",
+      href: "/downloads/7ls-video-publisher-2.0.5.zip",
+      filename: "7ls-video-publisher-2.0.5.zip",
     },
     clipTheme: {
       version: "1.2.8",
