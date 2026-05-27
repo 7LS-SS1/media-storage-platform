@@ -262,24 +262,12 @@ class Sync_Controller {
         $mode_key   = $this->strategy->get_mode_key();
         $mode_label = $this->strategy->get_label();
 
-        $active_job_error = $this->ensure_no_competing_active_job($normalized_job_id);
-        if (is_wp_error($active_job_error)) {
-            $this->fail_progress($normalized_job_id, $active_job_error->get_error_message());
-            return $active_job_error;
-        }
-
-        if (!Sync_Lock::claim_active_job($normalized_job_id, $normalized_operation)) {
-            $error = new \WP_Error('sync_locked', __('มีงานซิงก์อื่นอยู่ในคิวหรือกำลังทำงานอยู่ กรุณารอสักครู่', '7ls-video-publisher'));
-            $this->fail_progress($normalized_job_id, $error->get_error_message());
-            return $error;
-        }
-
         $state = $this->build_windowed_batch_state($normalized_job_id, $normalized_operation, $mode_key, $mode_label);
         if (is_wp_error($state)) {
             return $this->fail_batch_job($normalized_job_id, $state->get_error_message());
         }
 
-        Logger::log("Queued batched {$normalized_operation} job {$normalized_job_id} (mode: {$mode_key})");
+        Logger::log("Started batched {$normalized_operation} job {$normalized_job_id} (mode: {$mode_key})");
 
         $this->update_progress($normalized_job_id, [
             'status'        => 'running',
@@ -365,19 +353,7 @@ class Sync_Controller {
         $mode_key   = $this->strategy->get_mode_key();
         $mode_label = $this->strategy->get_label();
 
-        $active_job_error = $this->ensure_no_competing_active_job($normalized_job_id);
-        if (is_wp_error($active_job_error)) {
-            $this->fail_progress($normalized_job_id, $active_job_error->get_error_message());
-            return $active_job_error;
-        }
-
-        if (!Sync_Lock::claim_active_job($normalized_job_id, 'full_sync')) {
-            $error = new \WP_Error('sync_locked', __('มีงานซิงก์อื่นอยู่ในคิวหรือกำลังทำงานอยู่ กรุณารอสักครู่', '7ls-video-publisher'));
-            $this->fail_progress($normalized_job_id, $error->get_error_message());
-            return $error;
-        }
-
-        Logger::log("Queued batched full sync job {$normalized_job_id} (mode: {$mode_key})");
+        Logger::log("Started batched full sync job {$normalized_job_id} (mode: {$mode_key})");
 
         $this->update_progress($normalized_job_id, [
             'status'     => 'running',
@@ -427,7 +403,7 @@ class Sync_Controller {
             'phase'    => 'prepare_remote',
             'batched'  => true,
             'continue' => true,
-            'message'  => __('เพิ่มงานซิงก์ข้อมูลทั้งหมดเข้าคิวแล้ว และพร้อมประมวลผลแบบแบ่งแบตช์', '7ls-video-publisher'),
+            'message'  => __('เริ่มซิงก์ข้อมูลทั้งหมดแล้ว และพร้อมประมวลผลแบบแบ่งแบตช์', '7ls-video-publisher'),
             'progress' => Sync_Lock::get_progress($normalized_job_id),
         ];
     }
@@ -468,39 +444,18 @@ class Sync_Controller {
             return new \WP_Error('sync_job_missing', __('ไม่พบงานซิงก์ข้อมูลทั้งหมด กรุณาเริ่มใหม่อีกครั้ง', '7ls-video-publisher'));
         }
 
-        $active_job_error = $this->ensure_no_competing_active_job($normalized_job_id);
-        if (is_wp_error($active_job_error)) {
-            return $this->fail_batch_job($normalized_job_id, $active_job_error->get_error_message());
-        }
-
-        if (!Sync_Lock::claim_active_job($normalized_job_id, 'full_sync')) {
-            return $this->fail_batch_job(
-                $normalized_job_id,
-                __('มีงานซิงก์อื่นอยู่ในคิวหรือกำลังทำงานอยู่ กรุณารอสักครู่', '7ls-video-publisher')
-            );
-        }
-
-        if (!Sync_Lock::acquire()) {
-            $active_job = Sync_Lock::get_active_job();
-            if (is_array($active_job) && ($active_job['job_id'] ?? '') === $normalized_job_id) {
-                return [
-                    'job_id'   => $normalized_job_id,
-                    'phase'    => isset($state['phase']) && is_string($state['phase']) ? $state['phase'] : 'prepare_remote',
-                    'batched'  => true,
-                    'continue' => true,
-                    'progress' => Sync_Lock::get_progress($normalized_job_id),
-                ];
-            }
-
-            return $this->fail_batch_job(
-                $normalized_job_id,
-                __('มีคำขอซิงก์อื่นกำลังประมวลผลอยู่ กรุณารอสักครู่แล้วลองใหม่อีกครั้ง', '7ls-video-publisher')
-            );
+        if (!Sync_Lock::acquire_job_request_lock($normalized_job_id)) {
+            return [
+                'job_id'   => $normalized_job_id,
+                'phase'    => isset($state['phase']) && is_string($state['phase']) ? $state['phase'] : 'prepare_remote',
+                'batched'  => true,
+                'continue' => true,
+                'progress' => Sync_Lock::get_progress($normalized_job_id),
+            ];
         }
 
         try {
-            Sync_Lock::refresh();
-            Sync_Lock::refresh_active_job($normalized_job_id, 'full_sync');
+            Sync_Lock::refresh_job_request_lock($normalized_job_id);
 
             $request_started_at = microtime(true);
             $request_time_budget = $this->get_full_sync_request_time_budget($time_budget_seconds);
@@ -520,6 +475,7 @@ class Sync_Controller {
                 }
 
                 $steps_completed++;
+                Sync_Lock::refresh_job_request_lock($normalized_job_id);
 
                 if (!empty($step_result['completed'])) {
                     return [
@@ -555,7 +511,7 @@ class Sync_Controller {
                 sprintf(__('แบตช์ซิงก์ข้อมูลทั้งหมดล้มเหลว: %s', '7ls-video-publisher'), $throwable->getMessage())
             );
         } finally {
-            Sync_Lock::release();
+            Sync_Lock::release_job_request_lock($normalized_job_id);
         }
     }
 
@@ -566,39 +522,18 @@ class Sync_Controller {
     private function process_windowed_sync_batch(string $job_id, array $state, ?float $time_budget_seconds = null): array|\WP_Error {
         $operation = sanitize_key((string) ($state['operation'] ?? 'manual_sync'));
 
-        $active_job_error = $this->ensure_no_competing_active_job($job_id);
-        if (is_wp_error($active_job_error)) {
-            return $this->fail_batch_job($job_id, $active_job_error->get_error_message());
-        }
-
-        if (!Sync_Lock::claim_active_job($job_id, $operation)) {
-            return $this->fail_batch_job(
-                $job_id,
-                __('มีงานซิงก์อื่นอยู่ในคิวหรือกำลังทำงานอยู่ กรุณารอสักครู่', '7ls-video-publisher')
-            );
-        }
-
-        if (!Sync_Lock::acquire()) {
-            $active_job = Sync_Lock::get_active_job();
-            if (is_array($active_job) && ($active_job['job_id'] ?? '') === $job_id) {
-                return [
-                    'job_id'   => $job_id,
-                    'phase'    => 'sync_local',
-                    'batched'  => true,
-                    'continue' => true,
-                    'progress' => Sync_Lock::get_progress($job_id),
-                ];
-            }
-
-            return $this->fail_batch_job(
-                $job_id,
-                __('มีคำขอซิงก์อื่นกำลังประมวลผลอยู่ กรุณารอสักครู่แล้วลองใหม่อีกครั้ง', '7ls-video-publisher')
-            );
+        if (!Sync_Lock::acquire_job_request_lock($job_id)) {
+            return [
+                'job_id'   => $job_id,
+                'phase'    => 'sync_local',
+                'batched'  => true,
+                'continue' => true,
+                'progress' => Sync_Lock::get_progress($job_id),
+            ];
         }
 
         try {
-            Sync_Lock::refresh();
-            Sync_Lock::refresh_active_job($job_id, $operation);
+            Sync_Lock::refresh_job_request_lock($job_id);
 
             $request_started_at = microtime(true);
             $request_time_budget = $this->get_full_sync_request_time_budget($time_budget_seconds);
@@ -611,6 +546,7 @@ class Sync_Controller {
                 }
 
                 $steps_completed++;
+                Sync_Lock::refresh_job_request_lock($job_id);
 
                 if (!empty($step_result['completed'])) {
                     return [
@@ -646,7 +582,7 @@ class Sync_Controller {
                 sprintf(__('แบตช์ซิงก์ล้มเหลว: %s', '7ls-video-publisher'), $throwable->getMessage())
             );
         } finally {
-            Sync_Lock::release();
+            Sync_Lock::release_job_request_lock($job_id);
         }
     }
 
@@ -709,7 +645,6 @@ class Sync_Controller {
 
         if ($next_cursor !== null) {
             Sync_Lock::set_job_state($job_id, $state);
-            Sync_Lock::refresh_active_job($job_id, 'full_sync');
 
             $message = sprintf(
                 __('เตรียมข้อมูลต้นทางแบตช์ที่ %1$d แล้ว: สแกน %2$d รายการ สร้าง %3$d รายการ อัปเดต %4$d รายการ กำลังดำเนินการต่อ...', '7ls-video-publisher'),
@@ -740,7 +675,6 @@ class Sync_Controller {
         $state['page'] = 1;
         $state['per_page'] = max(1, (int) ($state['per_page'] ?? 50));
         Sync_Lock::set_job_state($job_id, $state);
-        Sync_Lock::refresh_active_job($job_id, 'full_sync');
 
         Sync_Lock::update_progress($job_id, [
             'status'        => 'running',
@@ -812,7 +746,6 @@ class Sync_Controller {
 
         if (!empty($batch['has_more'])) {
             Sync_Lock::set_job_state($job_id, $state);
-            Sync_Lock::refresh_active_job($job_id, $operation);
 
             return [
                 'state'    => $state,
@@ -1035,6 +968,7 @@ class Sync_Controller {
 
     private function fail_batch_job(string $job_id, string $message): \WP_Error {
         Sync_Lock::clear_job_state($job_id);
+        Sync_Lock::release_job_request_lock($job_id);
         Sync_Lock::release_active_job($job_id);
         $this->fail_progress($job_id, $message);
 

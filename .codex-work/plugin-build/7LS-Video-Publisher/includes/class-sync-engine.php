@@ -267,7 +267,7 @@ class Sync_Engine {
                 $processed++;
                 if ($result['action'] === 'created') {
                     $created++;
-                } else {
+                } elseif ($result['action'] === 'updated') {
                     $updated++;
                 }
 
@@ -278,7 +278,9 @@ class Sync_Engine {
                         ? $result['message']
                         : ($result['action'] === 'created'
                             ? __('สร้างวิดีโอใหม่เรียบร้อยแล้ว', '7ls-video-publisher')
-                            : __('อัปเดตวิดีโอเดิมเรียบร้อยแล้ว', '7ls-video-publisher')),
+                            : ($result['action'] === 'skipped'
+                                ? __('ข้ามรายการนี้ชั่วคราว เพราะมีงานซิงก์อื่นกำลังจัดการข้อมูลเดียวกันอยู่', '7ls-video-publisher')
+                                : __('อัปเดตวิดีโอเดิมเรียบร้อยแล้ว', '7ls-video-publisher'))),
                 ]);
             }
 
@@ -291,7 +293,9 @@ class Sync_Engine {
                     'status'       => 'running',
                     'message'      => is_wp_error($result)
                         ? sprintf(__('อัปเดต "%1$s" ไม่สำเร็จที่%2$s', '7ls-video-publisher'), $item_label, $page_label)
-                        : sprintf(__('อัปเดต "%1$s" แล้วที่%2$s', '7ls-video-publisher'), $item_label, $page_label),
+                        : ($result['action'] === 'skipped'
+                            ? sprintf(__('ข้าม "%1$s" ชั่วคราวที่%2$s', '7ls-video-publisher'), $item_label, $page_label)
+                            : sprintf(__('อัปเดต "%1$s" แล้วที่%2$s', '7ls-video-publisher'), $item_label, $page_label)),
                     'percent'      => $this->build_progress_percent(
                         handled: $handled,
                         total_items: $total_items,
@@ -418,7 +422,41 @@ class Sync_Engine {
             return new \WP_Error('invalid_data', 'Missing external_id after mapping');
         }
 
-        $existing_post = $this->find_existing_post($mapped['external_id']);
+        $external_id = (string) $mapped['external_id'];
+        $existing_post = $this->find_existing_post($external_id);
+        $post_id = 0;
+        $action = '';
+        $message = '';
+
+        if (!$existing_post) {
+            $create_lock_acquired = Sync_Lock::acquire_item_create_lock($external_id);
+
+            if ($create_lock_acquired) {
+                try {
+                    unset($this->existing_post_cache[$external_id]);
+                    $existing_post = $this->find_existing_post($external_id);
+
+                    if (!$existing_post) {
+                        $post_id = $this->create_video_post($mapped);
+                        $action  = 'created';
+                        $message = __('สร้างวิดีโอใหม่เรียบร้อยแล้ว', '7ls-video-publisher');
+                    }
+                } finally {
+                    Sync_Lock::release_item_create_lock($external_id);
+                }
+            } else {
+                unset($this->existing_post_cache[$external_id]);
+                $existing_post = $this->find_existing_post($external_id);
+
+                if (!$existing_post) {
+                    return [
+                        'post_id' => 0,
+                        'action'  => 'skipped',
+                        'message' => __('ข้ามรายการนี้ชั่วคราว เพราะมีงานซิงก์อื่นกำลังสร้างข้อมูลวิดีโอเดียวกันอยู่', '7ls-video-publisher'),
+                    ];
+                }
+            }
+        }
 
         if ($existing_post) {
             if ($this->can_skip_existing_post_update($existing_post, $mapped)) {
@@ -430,10 +468,6 @@ class Sync_Engine {
                 $action  = 'updated';
                 $message = __('อัปเดตวิดีโอเดิมเรียบร้อยแล้ว', '7ls-video-publisher');
             }
-        } else {
-            $post_id = $this->create_video_post($mapped);
-            $action  = 'created';
-            $message = __('สร้างวิดีโอใหม่เรียบร้อยแล้ว', '7ls-video-publisher');
         }
 
         if (is_wp_error($post_id)) {

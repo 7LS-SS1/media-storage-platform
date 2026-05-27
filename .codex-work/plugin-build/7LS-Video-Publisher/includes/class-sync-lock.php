@@ -15,6 +15,10 @@ class Sync_Lock {
     private const ACTIVE_JOB_TRANSIENT_KEY = 'sevenls_vp_sync_active_job';
     private const ACTIVE_JOB_TTL           = 3600;
     private const ACTIVE_JOB_STALE_SECONDS = 30;
+    private const JOB_REQUEST_LOCK_PREFIX  = 'sevenls_vp_sync_job_lock_';
+    private const JOB_REQUEST_LOCK_TTL     = 30;
+    private const ITEM_CREATE_LOCK_PREFIX  = 'sevenls_vp_sync_item_lock_';
+    private const ITEM_CREATE_LOCK_TTL     = 30;
     private const PROGRESS_TRANSIENT_PREFIX = 'sevenls_vp_sync_progress_';
     private const JOB_STATE_TRANSIENT_PREFIX = 'sevenls_vp_sync_job_state_';
     private const PROGRESS_ACTIVE_TTL       = 1800;
@@ -228,6 +232,83 @@ class Sync_Lock {
         self::release();
 
         return true;
+    }
+
+    /**
+     * Acquire a short-lived lock for one job request so the same job is not processed twice at once.
+     */
+    public static function acquire_job_request_lock(string $job_id): bool {
+        $normalized_job_id = sanitize_key($job_id);
+        if ($normalized_job_id === '') {
+            return false;
+        }
+
+        $key = self::job_request_lock_key($normalized_job_id);
+        if (get_transient($key) !== false) {
+            return false;
+        }
+
+        set_transient($key, [
+            'job_id' => $normalized_job_id,
+            'time'   => time(),
+        ], self::JOB_REQUEST_LOCK_TTL);
+
+        return true;
+    }
+
+    public static function refresh_job_request_lock(string $job_id): void {
+        $normalized_job_id = sanitize_key($job_id);
+        if ($normalized_job_id === '') {
+            return;
+        }
+
+        $key = self::job_request_lock_key($normalized_job_id);
+        if (get_transient($key) === false) {
+            return;
+        }
+
+        set_transient($key, [
+            'job_id' => $normalized_job_id,
+            'time'   => time(),
+        ], self::JOB_REQUEST_LOCK_TTL);
+    }
+
+    public static function release_job_request_lock(string $job_id): void {
+        $normalized_job_id = sanitize_key($job_id);
+        if ($normalized_job_id === '') {
+            return;
+        }
+
+        delete_transient(self::job_request_lock_key($normalized_job_id));
+    }
+
+    /**
+     * Acquire a short-lived create lock for one external video id.
+     */
+    public static function acquire_item_create_lock(string $external_id): bool {
+        $key = self::item_create_lock_key($external_id);
+        if ($key === '') {
+            return false;
+        }
+
+        if (get_transient($key) !== false) {
+            return false;
+        }
+
+        set_transient($key, [
+            'time' => time(),
+        ], self::ITEM_CREATE_LOCK_TTL);
+
+        return true;
+    }
+
+    public static function release_item_create_lock(string $external_id): void {
+        $key = self::item_create_lock_key($external_id);
+        if ($key === '') {
+            return;
+        }
+
+        delete_transient($key);
     }
 
     /**
@@ -453,6 +534,19 @@ class Sync_Lock {
         return self::JOB_STATE_TRANSIENT_PREFIX . sanitize_key($job_id);
     }
 
+    private static function job_request_lock_key(string $job_id): string {
+        return self::JOB_REQUEST_LOCK_PREFIX . sanitize_key($job_id);
+    }
+
+    private static function item_create_lock_key(string $external_id): string {
+        $normalized = sanitize_text_field($external_id);
+        if ($normalized === '') {
+            return '';
+        }
+
+        return self::ITEM_CREATE_LOCK_PREFIX . md5($normalized);
+    }
+
     /**
      * @param array<string, mixed>|null $active_job
      * @param array<string, mixed>|null $state
@@ -504,7 +598,7 @@ class Sync_Lock {
      * @param array<int, string> $allowed_statuses
      * @return array<int, array{title: string, status: string, detail: string}>
      */
-    private static function normalize_progress_entries(mixed $items, array $allowed_statuses = ['created', 'updated', 'error'], int $limit = 10): array {
+    private static function normalize_progress_entries(mixed $items, array $allowed_statuses = ['created', 'updated', 'skipped', 'error'], int $limit = 10): array {
         if (!is_array($items)) {
             return [];
         }
