@@ -8,7 +8,6 @@ import { parseStorageBucket, resolveStorageBucketFilter } from "@/lib/storage-bu
 import { enqueueVideoTranscode } from "@/lib/video-transcode"
 
 const MAX_BATCH = 1000
-const SYNC_LOCK_NAMESPACE = 824381
 
 const toTitle = (key: string) => {
   const base = path.basename(key).replace(/\.[^.]+$/, "")
@@ -42,8 +41,6 @@ const buildExistingVideoUrlCandidates = (keys: string[], bucket: "media" | "jav"
 
   return Array.from(candidates)
 }
-
-const getSyncLockId = (bucket: "media" | "jav") => (bucket === "jav" ? 2 : 1)
 
 const parseLimit = (value: unknown) => {
   if (typeof value === "number" && Number.isFinite(value)) return value
@@ -117,8 +114,6 @@ const handleSync = async (
 
     const syncResult = await prisma.$transaction(
       async (tx) => {
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(${SYNC_LOCK_NAMESPACE}, ${getSyncLockId(options.bucket)})`
-
         const existingVideos =
           existingVideoUrlCandidates.length > 0
             ? await tx.video.findMany({
@@ -261,7 +256,8 @@ const handleSync = async (
     })
   } catch (error) {
     console.error("Sync videos error:", error)
-    return NextResponse.json({ error: "Failed to sync videos" }, { status: 500 })
+    const message = error instanceof Error ? error.message : "Unknown sync error"
+    return NextResponse.json({ error: "Failed to sync videos", detail: message }, { status: 500 })
   }
 }
 
