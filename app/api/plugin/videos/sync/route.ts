@@ -60,6 +60,7 @@ const buildSyncOptions = (input: {
   bucket?: unknown
   storageBucket?: unknown
   type?: unknown
+  mode?: unknown
 }) => {
   const continuationToken = typeof input.cursor === "string" && input.cursor.length > 0 ? input.cursor : undefined
   const limitValue = parseLimit(input.limit)
@@ -70,7 +71,12 @@ const buildSyncOptions = (input: {
   const bucketFilter = resolveStorageBucketFilter({
     bucket: typeof input.bucket === "string" ? input.bucket : undefined,
     storageBucket: typeof input.storageBucket === "string" ? input.storageBucket : undefined,
-    type: typeof input.type === "string" ? input.type : undefined,
+    type:
+      typeof input.type === "string"
+        ? input.type
+        : typeof input.mode === "string"
+          ? input.mode
+          : undefined,
   })
   const fallbackBucketValue =
     typeof input.bucket === "string"
@@ -267,6 +273,7 @@ export async function POST(request: NextRequest) {
     bucket: body.bucket,
     storageBucket: body.storageBucket,
     type: body.type,
+    mode: body.mode,
   })
   return await handleSync(request, options)
 }
@@ -279,6 +286,7 @@ export async function GET(request: NextRequest) {
     bucket: searchParams.get("bucket"),
     storageBucket: searchParams.get("storageBucket"),
     type: searchParams.get("type"),
+    mode: searchParams.get("mode"),
   })
   return await handleSync(request, options)
 }
