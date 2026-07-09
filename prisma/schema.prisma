@@ -108,6 +108,7 @@ model Video {
   @@index([status])
   @@index([visibility])
   @@index([storageBucket])
+  @@index([videoUrl])
   @@index([targetKeyword])
   @@map("videos")
 }

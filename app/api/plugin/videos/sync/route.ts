@@ -8,6 +8,7 @@ import { parseStorageBucket, resolveStorageBucketFilter } from "@/lib/storage-bu
 import { enqueueVideoTranscode } from "@/lib/video-transcode"
 
 const MAX_BATCH = 1000
+const SYNC_LOCK_NAMESPACE = 824381
 
 const toTitle = (key: string) => {
   const base = path.basename(key).replace(/\.[^.]+$/, "")
@@ -18,6 +19,31 @@ const toTargetKeyword = (title: string) => {
   const normalized = title.replace(/\s+/g, " ").trim()
   return (normalized || "video").slice(0, 120)
 }
+
+const getCounterpartKey = (key: string) => {
+  if (key.toLowerCase().endsWith(".mp4")) return key.replace(/\.mp4$/i, ".ts")
+  if (key.toLowerCase().endsWith(".ts")) return key.replace(/\.ts$/i, ".mp4")
+  return null
+}
+
+const buildExistingVideoUrlCandidates = (keys: string[], bucket: "media" | "jav") => {
+  const candidates = new Set<string>()
+
+  for (const key of keys) {
+    candidates.add(key)
+    candidates.add(getPublicR2Url(key, bucket))
+
+    const counterpartKey = getCounterpartKey(key)
+    if (counterpartKey) {
+      candidates.add(counterpartKey)
+      candidates.add(getPublicR2Url(counterpartKey, bucket))
+    }
+  }
+
+  return Array.from(candidates)
+}
+
+const getSyncLockId = (bucket: "media" | "jav") => (bucket === "jav" ? 2 : 1)
 
 const parseLimit = (value: unknown) => {
   if (typeof value === "number" && Number.isFinite(value)) return value
@@ -80,128 +106,150 @@ const handleSync = async (
     const mp4Objects = objects.filter((item) => item.key.toLowerCase().endsWith(".mp4"))
     const tsObjects = objects.filter((item) => item.key.toLowerCase().endsWith(".ts"))
     const mp4KeySet = new Set(mp4Objects.map((item) => item.key))
+    const discoveredKeys = [...mp4Objects, ...tsObjects].map((item) => item.key)
+    const existingVideoUrlCandidates = buildExistingVideoUrlCandidates(discoveredKeys, options.bucket)
 
-    const existingVideos = await prisma.video.findMany({
-      select: { id: true, videoUrl: true, storageBucket: true },
-    })
-    const existingKeyMap = new Map<string, { id: string }>()
-    for (const video of existingVideos) {
-      const key = extractR2Key(video.videoUrl, parseStorageBucket(video.storageBucket))
-      if (key) {
-        existingKeyMap.set(key, { id: video.id })
-      }
-    }
+    const syncResult = await prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SYNC_LOCK_NAMESPACE}, ${getSyncLockId(options.bucket)})`
 
-    const toCreate: typeof mp4Objects = []
-    const toUpdate: Array<{ id: string; key: string; size?: number }> = []
-    const toCreateTs: typeof tsObjects = []
-
-    for (const item of mp4Objects) {
-      if (existingKeyMap.has(item.key)) {
-        continue
-      }
-
-      const tsKey = item.key.replace(/\.mp4$/i, ".ts")
-      const existingTs = existingKeyMap.get(tsKey)
-      if (existingTs) {
-        toUpdate.push({ id: existingTs.id, key: item.key, size: item.size })
-        continue
-      }
-
-      toCreate.push(item)
-    }
-
-    for (const item of tsObjects) {
-      if (existingKeyMap.has(item.key)) {
-        continue
-      }
-
-      const mp4Key = item.key.replace(/\.ts$/i, ".mp4")
-      if (existingKeyMap.has(mp4Key) || mp4KeySet.has(mp4Key)) {
-        continue
-      }
-
-      toCreateTs.push(item)
-    }
-
-    if (toUpdate.length > 0) {
-      await Promise.all(
-        toUpdate.map((item) =>
-          prisma.video.update({
-            where: { id: item.id },
-            data: {
-              videoUrl: getPublicR2Url(item.key, options.bucket),
-              mimeType: "video/mp4",
-              status: "READY",
-              transcodeProgress: 100,
-              fileSize: item.size === undefined ? undefined : BigInt(item.size),
-              storageBucket: options.bucket,
-            },
-          }),
-        ),
-      )
-    }
-
-    if (toCreate.length > 0) {
-      await prisma.video.createMany({
-        data: toCreate.map((item) => {
-          const title = toTitle(item.key)
-          return {
-            title,
-            targetKeyword: toTargetKeyword(title),
-            description: null,
-            videoUrl: getPublicR2Url(item.key, options.bucket),
-            thumbnailUrl: null,
-            duration: null,
-            fileSize: item.size === undefined ? null : BigInt(item.size),
-            mimeType: "video/mp4",
-            visibility: "PUBLIC",
-            status: "READY",
-            transcodeProgress: 100,
-            storageBucket: options.bucket,
-            createdById: user.userId,
+        const existingVideos =
+          existingVideoUrlCandidates.length > 0
+            ? await tx.video.findMany({
+                where: {
+                  storageBucket: options.bucket,
+                  videoUrl: { in: existingVideoUrlCandidates },
+                },
+                select: { id: true, videoUrl: true, storageBucket: true },
+              })
+            : []
+        const existingKeyMap = new Map<string, { id: string }>()
+        for (const video of existingVideos) {
+          const key = extractR2Key(video.videoUrl, parseStorageBucket(video.storageBucket))
+          if (key) {
+            existingKeyMap.set(key, { id: video.id })
           }
-        }),
-      })
-    }
+        }
 
-    if (toCreateTs.length > 0) {
-      await Promise.all(
-        toCreateTs.map(async (item) => {
-          const title = toTitle(item.key)
-          const video = await prisma.video.create({
-            data: {
-              title,
-              targetKeyword: toTargetKeyword(title),
-              description: null,
-              videoUrl: getPublicR2Url(item.key, options.bucket),
-              thumbnailUrl: null,
-              duration: null,
-              fileSize: item.size === undefined ? null : BigInt(item.size),
-              mimeType: "video/mp2t",
-              visibility: "PUBLIC",
-              status: "PROCESSING",
-              transcodeProgress: 0,
-              storageBucket: options.bucket,
-              createdById: user.userId,
-            },
+        const toCreate: typeof mp4Objects = []
+        const toUpdate: Array<{ id: string; key: string; size?: number }> = []
+        const toCreateTs: typeof tsObjects = []
+
+        for (const item of mp4Objects) {
+          if (existingKeyMap.has(item.key)) {
+            continue
+          }
+
+          const tsKey = item.key.replace(/\.mp4$/i, ".ts")
+          const existingTs = existingKeyMap.get(tsKey)
+          if (existingTs) {
+            toUpdate.push({ id: existingTs.id, key: item.key, size: item.size })
+            continue
+          }
+
+          toCreate.push(item)
+        }
+
+        for (const item of tsObjects) {
+          if (existingKeyMap.has(item.key)) {
+            continue
+          }
+
+          const mp4Key = item.key.replace(/\.ts$/i, ".mp4")
+          if (existingKeyMap.has(mp4Key) || mp4KeySet.has(mp4Key)) {
+            continue
+          }
+
+          toCreateTs.push(item)
+        }
+
+        if (toUpdate.length > 0) {
+          await Promise.all(
+            toUpdate.map((item) =>
+              tx.video.update({
+                where: { id: item.id },
+                data: {
+                  videoUrl: getPublicR2Url(item.key, options.bucket),
+                  mimeType: "video/mp4",
+                  status: "READY",
+                  transcodeProgress: 100,
+                  fileSize: item.size === undefined ? undefined : BigInt(item.size),
+                  storageBucket: options.bucket,
+                },
+              }),
+            ),
+          )
+        }
+
+        if (toCreate.length > 0) {
+          await tx.video.createMany({
+            data: toCreate.map((item) => {
+              const title = toTitle(item.key)
+              return {
+                title,
+                targetKeyword: toTargetKeyword(title),
+                description: null,
+                videoUrl: getPublicR2Url(item.key, options.bucket),
+                thumbnailUrl: null,
+                duration: null,
+                fileSize: item.size === undefined ? null : BigInt(item.size),
+                mimeType: "video/mp4",
+                visibility: "PUBLIC",
+                status: "READY",
+                transcodeProgress: 100,
+                storageBucket: options.bucket,
+                createdById: user.userId,
+              }
+            }),
           })
+        }
 
-          enqueueVideoTranscode(video.id, video.videoUrl, video.mimeType, options.bucket)
-        }),
-      )
+        const createdTsVideos = await Promise.all(
+          toCreateTs.map(async (item) => {
+            const title = toTitle(item.key)
+            return await tx.video.create({
+              data: {
+                title,
+                targetKeyword: toTargetKeyword(title),
+                description: null,
+                videoUrl: getPublicR2Url(item.key, options.bucket),
+                thumbnailUrl: null,
+                duration: null,
+                fileSize: item.size === undefined ? null : BigInt(item.size),
+                mimeType: "video/mp2t",
+                visibility: "PUBLIC",
+                status: "PROCESSING",
+                transcodeProgress: 0,
+                storageBucket: options.bucket,
+                createdById: user.userId,
+              },
+              select: { id: true, videoUrl: true, mimeType: true },
+            })
+          }),
+        )
+
+        return {
+          created: toCreate.length + toCreateTs.length,
+          updated: toUpdate.length,
+          queuedTranscodes: createdTsVideos,
+        }
+      },
+      { timeout: 30000 },
+    )
+
+    for (const video of syncResult.queuedTranscodes) {
+      enqueueVideoTranscode(video.id, video.videoUrl, video.mimeType, options.bucket)
     }
 
     const discovered = mp4Objects.length + tsObjects.length
-    const created = toCreate.length + toCreateTs.length
-    const skipped = discovered - created - toUpdate.length
+    const skipped = discovered - syncResult.created - syncResult.updated
 
     return NextResponse.json({
       message: "Sync completed",
       scanned: objects.length,
       discovered,
-      created,
-      updated: toUpdate.length,
+      created: syncResult.created,
+      updated: syncResult.updated,
       skipped,
       nextCursor: nextContinuationToken ?? null,
     })

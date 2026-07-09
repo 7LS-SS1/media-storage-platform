@@ -12,6 +12,7 @@
     "lint": "eslint .",
     "postinstall": "prisma generate",
     "start": "next start",
+    "videos:dedupe": "node scripts/dedupe-videos.js",
     "transcode:ts": "node scripts/transcode-ts-videos.js",
     "transcode:worker": "node scripts/transcode-worker.js"
   },
