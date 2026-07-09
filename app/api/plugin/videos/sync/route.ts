@@ -111,7 +111,7 @@ const handleSync = async (
 
     const syncResult = await prisma.$transaction(
       async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SYNC_LOCK_NAMESPACE}, ${getSyncLockId(options.bucket)})`
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(${SYNC_LOCK_NAMESPACE}, ${getSyncLockId(options.bucket)})`
 
         const existingVideos =
           existingVideoUrlCandidates.length > 0
