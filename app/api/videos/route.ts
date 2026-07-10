@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth"
+import { unauthorizedResponse } from "@/lib/auth-response"
 import { prisma } from "@/lib/prisma"
 import { canManageVideos, canViewAllVideos } from "@/lib/roles"
 import { getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib/r2"
@@ -61,7 +62,7 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getUserFromRequest(request)
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      return unauthorizedResponse(request)
     }
 
     if (!canManageVideos(user.role)) {
@@ -222,7 +223,7 @@ export async function GET(request: NextRequest) {
   try {
     const user = await getUserFromRequest(request)
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      return unauthorizedResponse(request)
     }
     await markMp4VideosReady()
 

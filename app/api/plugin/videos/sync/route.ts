@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import path from "path"
 import { getUserFromRequest } from "@/lib/auth"
+import { unauthorizedResponse } from "@/lib/auth-response"
 import { prisma } from "@/lib/prisma"
 import { isSystem } from "@/lib/roles"
 import { extractR2Key, getPublicR2Url, listR2VideoObjects } from "@/lib/r2"
@@ -93,7 +94,7 @@ const handleSync = async (
   try {
     const user = await getUserFromRequest(request)
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      return unauthorizedResponse(request)
     }
 
     if (!isSystem(user.role)) {

@@ -18,6 +18,31 @@ export interface JWTPayload {
   role: string
 }
 
+export type AuthFailure = {
+  code:
+    | "missing_token"
+    | "invalid_token"
+    | "missing_domain"
+    | "domain_mismatch"
+    | "domain_not_allowed"
+  message: string
+  status: 401 | 403
+  domain?: string | null
+  boundDomain?: string | null
+  origin?: string | null
+  referer?: string | null
+}
+
+const authFailures = new WeakMap<NextRequest, AuthFailure>()
+
+const setAuthFailure = (request: NextRequest, failure: AuthFailure) => {
+  authFailures.set(request, failure)
+}
+
+export function getAuthFailureFromRequest(request: NextRequest): AuthFailure | null {
+  return authFailures.get(request) ?? null
+}
+
 /**
  * Generate JWT Token
  */
@@ -49,6 +74,7 @@ export function hashApiToken(token: string): string {
  * Get user from request
  */
 export async function getUserFromRequest(request: NextRequest): Promise<JWTPayload | null> {
+  authFailures.delete(request)
   const authHeader = request.headers.get("authorization")
   const headerToken = authHeader?.replace(/^Bearer\s+/i, "")
   const cookieToken = request.cookies.get("token")?.value
@@ -60,6 +86,13 @@ export async function getUserFromRequest(request: NextRequest): Promise<JWTPaylo
     if (jwtPayload) {
       if (requiresDomainCheck) {
         if (!requestDomain) {
+          setAuthFailure(request, {
+            code: "missing_domain",
+            message: "Request domain is required for this API token.",
+            status: 403,
+            origin: request.headers.get("origin"),
+            referer: request.headers.get("referer"),
+          })
           console.warn("Blocked JWT request without origin/referer domain", {
             path: request.nextUrl.pathname,
             origin: request.headers.get("origin"),
@@ -70,6 +103,14 @@ export async function getUserFromRequest(request: NextRequest): Promise<JWTPaylo
 
         const isAllowedDomain = await isDomainGloballyAllowed(requestDomain)
         if (!isAllowedDomain) {
+          setAuthFailure(request, {
+            code: "domain_not_allowed",
+            message: "Request domain is not globally allowed.",
+            status: 403,
+            domain: requestDomain,
+            origin: request.headers.get("origin"),
+            referer: request.headers.get("referer"),
+          })
           console.warn("Blocked JWT request from non-allowed domain", {
             path: request.nextUrl.pathname,
             domain: requestDomain,
@@ -107,10 +148,24 @@ export async function getUserFromRequest(request: NextRequest): Promise<JWTPaylo
       },
     })
 
-    if (!apiToken) return null
+    if (!apiToken) {
+      setAuthFailure(request, {
+        code: "invalid_token",
+        message: "API token is invalid, revoked, or expired.",
+        status: 401,
+      })
+      return null
+    }
 
     if (requiresDomainCheck) {
       if (!requestDomain) {
+        setAuthFailure(request, {
+          code: "missing_domain",
+          message: "Request domain is required for this API token.",
+          status: 403,
+          origin: request.headers.get("origin"),
+          referer: request.headers.get("referer"),
+        })
         console.warn("Blocked API token request without origin/referer domain", {
           path: request.nextUrl.pathname,
           tokenId: apiToken.id,
@@ -125,6 +180,18 @@ export async function getUserFromRequest(request: NextRequest): Promise<JWTPaylo
         : await isDomainGloballyAllowed(requestDomain)
 
       if (!isAllowedDomain) {
+        const isBoundToken = Boolean(apiToken.boundDomain)
+        setAuthFailure(request, {
+          code: isBoundToken ? "domain_mismatch" : "domain_not_allowed",
+          message: isBoundToken
+            ? `API token is bound to ${apiToken.boundDomain}, but the request came from ${requestDomain}.`
+            : "Request domain is not globally allowed.",
+          status: 403,
+          domain: requestDomain,
+          boundDomain: apiToken.boundDomain,
+          origin: request.headers.get("origin"),
+          referer: request.headers.get("referer"),
+        })
         console.warn("Blocked API token request from non-allowed domain", {
           path: request.nextUrl.pathname,
           tokenId: apiToken.id,
@@ -158,9 +225,25 @@ export async function getUserFromRequest(request: NextRequest): Promise<JWTPaylo
     }
   }
 
-  if (!cookieToken) return null
+  if (!cookieToken) {
+    setAuthFailure(request, {
+      code: "missing_token",
+      message: "Authentication token is required.",
+      status: 401,
+    })
+    return null
+  }
 
-  return await verifyToken(cookieToken)
+  const verifiedCookieToken = await verifyToken(cookieToken)
+  if (!verifiedCookieToken) {
+    setAuthFailure(request, {
+      code: "invalid_token",
+      message: "Authentication token is invalid or expired.",
+      status: 401,
+    })
+  }
+
+  return verifiedCookieToken
 }
 
 /**
