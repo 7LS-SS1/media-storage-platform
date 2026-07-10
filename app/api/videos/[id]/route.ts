@@ -31,8 +31,9 @@ const mapPluginVideo = (video: {
   tags: string[]
   categories?: Array<{ id: string; name: string }> | null
   actors?: Array<{ name: string }> | string[] | null
-}) => {
+}, baseUrl?: string) => {
   const bucket = parseStorageBucket(video.storageBucket)
+  const embedUrl = baseUrl ? `${baseUrl.replace(/\/$/, "")}/embed/${encodeURIComponent(video.id)}` : null
   return {
     id: video.id,
     title: video.title,
@@ -44,6 +45,7 @@ const mapPluginVideo = (video: {
     video_url: normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl,
     playback_url:
       toPublicPlaybackUrl(video.videoUrl, bucket) ?? normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl,
+    embed_url: embedUrl,
     thumbnail_url: normalizeR2Url(video.thumbnailUrl, bucket),
     duration: video.duration,
     tags: mergeTags(video.tags, video.categories ?? []),
@@ -52,6 +54,18 @@ const mapPluginVideo = (video: {
     created_at: video.createdAt,
     updated_at: video.updatedAt,
   }
+}
+
+const getPublicBaseUrl = (request: NextRequest) => {
+  const forwardedHost = request.headers.get("x-forwarded-host")
+  const forwardedProto = request.headers.get("x-forwarded-proto")
+  const host = forwardedHost ?? request.headers.get("host")
+
+  if (host) {
+    return `${forwardedProto ?? request.nextUrl.protocol.replace(":", "")}://${host}`
+  }
+
+  return request.nextUrl.origin
 }
 
 // GET - Get video by ID
@@ -141,7 +155,7 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
       if (!isMp4) {
         return NextResponse.json({ error: "Video is still processing" }, { status: 409 })
       }
-      return NextResponse.json({ data: mapPluginVideo(normalizedVideo) })
+      return NextResponse.json({ data: mapPluginVideo(normalizedVideo, getPublicBaseUrl(request)) })
     }
 
     return NextResponse.json({ video: normalizedVideo })

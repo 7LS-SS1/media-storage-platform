@@ -34,8 +34,9 @@ const mapPluginVideo = (video: {
   tags: string[]
   categories?: Array<{ id: string; name: string }> | null
   actors?: Array<{ name: string }> | string[] | null
-}) => {
+}, baseUrl?: string) => {
   const bucket = parseStorageBucket(video.storageBucket)
+  const embedUrl = baseUrl ? `${baseUrl.replace(/\/$/, "")}/embed/${encodeURIComponent(video.id)}` : null
   return {
     id: video.id,
     title: video.title,
@@ -47,6 +48,7 @@ const mapPluginVideo = (video: {
     video_url: normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl,
     playback_url:
       toPublicPlaybackUrl(video.videoUrl, bucket) ?? normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl,
+    embed_url: embedUrl,
     thumbnail_url: normalizeR2Url(video.thumbnailUrl, bucket),
     duration: video.duration,
     tags: mergeTags(video.tags, video.categories ?? []),
@@ -55,6 +57,18 @@ const mapPluginVideo = (video: {
     created_at: video.createdAt,
     updated_at: video.updatedAt,
   }
+}
+
+const getPublicBaseUrl = (request: NextRequest) => {
+  const forwardedHost = request.headers.get("x-forwarded-host")
+  const forwardedProto = request.headers.get("x-forwarded-proto")
+  const host = forwardedHost ?? request.headers.get("host")
+
+  if (host) {
+    return `${forwardedProto ?? request.nextUrl.protocol.replace(":", "")}://${host}`
+  }
+
+  return request.nextUrl.origin
 }
 
 // POST - Create new video
@@ -378,9 +392,10 @@ export async function GET(request: NextRequest) {
     if (isPluginRequest) {
       const totalPages = Math.ceil(total / limit)
       const hasMore = validatedQuery.page * limit < total
+      const baseUrl = getPublicBaseUrl(request)
 
       return NextResponse.json({
-        data: normalizedVideos.map((video) => mapPluginVideo(video)),
+        data: normalizedVideos.map((video) => mapPluginVideo(video, baseUrl)),
         pagination: {
           page: validatedQuery.page,
           per_page: limit,
