@@ -39,6 +39,8 @@ const setAuthFailure = (request: NextRequest, failure: AuthFailure) => {
   authFailures.set(request, failure)
 }
 
+const shouldLogAcceptedRequests = () => process.env.AUTH_LOG_ACCEPTED_REQUESTS === "true"
+
 export function getAuthFailureFromRequest(request: NextRequest): AuthFailure | null {
   return authFailures.get(request) ?? null
 }
@@ -120,11 +122,13 @@ export async function getUserFromRequest(request: NextRequest): Promise<JWTPaylo
           return null
         }
 
-        console.info("Accepted JWT request from allowed domain", {
-          path: request.nextUrl.pathname,
-          domain: requestDomain,
-          strategy: "global_domain_allowlist",
-        })
+        if (shouldLogAcceptedRequests()) {
+          console.info("Accepted JWT request from allowed domain", {
+            path: request.nextUrl.pathname,
+            domain: requestDomain,
+            strategy: "global_domain_allowlist",
+          })
+        }
       }
 
       return jwtPayload
@@ -204,13 +208,15 @@ export async function getUserFromRequest(request: NextRequest): Promise<JWTPaylo
         return null
       }
 
-      console.info("Accepted API token request from allowed domain", {
-        path: request.nextUrl.pathname,
-        tokenId: apiToken.id,
-        domain: requestDomain,
-        boundDomain: apiToken.boundDomain,
-        strategy: apiToken.boundDomain ? "token_bound_domain" : "global_domain_allowlist",
-      })
+      if (shouldLogAcceptedRequests()) {
+        console.info("Accepted API token request from allowed domain", {
+          path: request.nextUrl.pathname,
+          tokenId: apiToken.id,
+          domain: requestDomain,
+          boundDomain: apiToken.boundDomain,
+          strategy: apiToken.boundDomain ? "token_bound_domain" : "global_domain_allowlist",
+        })
+      }
     }
 
     await prisma.apiToken.update({
