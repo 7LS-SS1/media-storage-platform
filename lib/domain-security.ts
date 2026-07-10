@@ -31,8 +31,37 @@ export function domainsMatch(left: string, right: string): boolean {
   return normalizeDomain(left) === normalizeDomain(right)
 }
 
+function parseDomainList(value?: string | null): string[] {
+  if (!value) return []
+  return value
+    .split(/[,\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      try {
+        return normalizeDomainInput(item)
+      } catch {
+        return normalizeDomain(item)
+      }
+    })
+}
+
 function isProductionEnvironment(): boolean {
   return process.env.NODE_ENV === "production"
+}
+
+function shouldAllowLocalDomains(): boolean {
+  return process.env.AUTH_ALLOW_LOCAL_DOMAINS === "true"
+}
+
+export function isAuthTestDomain(domain: string): boolean {
+  const normalizedDomain = normalizeDomain(domain)
+  if (shouldAllowLocalDomains() && isLocalDomain(normalizedDomain)) {
+    return true
+  }
+  return parseDomainList(process.env.AUTH_TEST_DOMAINS).some((allowedDomain) =>
+    domainsMatch(normalizedDomain, allowedDomain),
+  )
 }
 
 function isLocalDomain(domain: string): boolean {
@@ -52,6 +81,8 @@ function isAllowedDomainEntry(domain: string): boolean {
 
 export function isRequestDomainAcceptable(domain: string): boolean {
   if (!isProductionEnvironment()) return true
+  if (shouldAllowLocalDomains() && isLocalDomain(domain)) return true
+  if (isAuthTestDomain(domain)) return true
   return !isLocalDomain(domain)
 }
 
@@ -109,6 +140,10 @@ export async function isDomainGloballyAllowed(domain: string): Promise<boolean> 
 
   if (!isRequestDomainAcceptable(normalizedDomain)) {
     return false
+  }
+
+  if (isAuthTestDomain(normalizedDomain)) {
+    return true
   }
 
   const allowedDomain = await prisma.allowedDomain.findFirst({

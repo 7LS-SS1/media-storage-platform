@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma"
 import {
   domainsMatch,
   getRequestingDomain,
+  isAuthTestDomain,
   isDomainCheckRequired,
   isDomainGloballyAllowed,
 } from "@/lib/domain-security"
@@ -179,8 +180,9 @@ export async function getUserFromRequest(request: NextRequest): Promise<JWTPaylo
         return null
       }
 
+      const isAllowedByTestDomain = isAuthTestDomain(requestDomain)
       const isAllowedDomain = apiToken.boundDomain
-        ? domainsMatch(requestDomain, apiToken.boundDomain)
+        ? domainsMatch(requestDomain, apiToken.boundDomain) || isAllowedByTestDomain
         : await isDomainGloballyAllowed(requestDomain)
 
       if (!isAllowedDomain) {
