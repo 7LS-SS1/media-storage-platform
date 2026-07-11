@@ -33,7 +33,17 @@ export const buildUploadXhrErrorMessage = (xhr: XMLHttpRequest, fallback: string
 export const shouldUseUploadProxyFallback = (error: unknown) => {
   const message = normalizeUploadErrorText(error instanceof Error ? error.message : String(error ?? ""))
   if (!message) return false
-  if (message.toLowerCase().includes("etag")) return true
+  const lowerMessage = message.toLowerCase()
+  if (
+    lowerMessage.includes("cors") ||
+    lowerMessage.includes("network") ||
+    lowerMessage.includes("blocked") ||
+    message.includes("ถูกบล็อก") ||
+    message.includes("เน็ตหลุด")
+  ) {
+    return true
+  }
+  if (lowerMessage.includes("etag")) return true
   const statusCode = extractUploadStatusCode(message)
   return statusCode === 0 || statusCode === 403
 }
