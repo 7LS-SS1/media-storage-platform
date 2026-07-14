@@ -1,328 +1,345 @@
-"use client";
-
-import React, { useState } from "react";
-import Link from "next/link";
+import Link from "next/link"
 import {
-  Video,
-  Upload,
-  Copy,
-  ExternalLink,
-  HardDrive,
-  Eye,
-  Clock,
-  Plus,
-  Play,
   CheckCircle2,
-  MoreVertical,
-  Settings,
+  Clock,
+  Eye,
   FileText,
-  Check,
-} from "lucide-react";
+  HardDrive,
+  MoreVertical,
+  Play,
+  Plus,
+  Settings,
+  Upload,
+  Video,
+} from "lucide-react"
+import { ApiBaseUrlCard, CopyEndpointButton } from "@/components/dashboard-copy-actions"
+import { prisma } from "@/lib/prisma"
 
-export default function DashboardPreview() {
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [apiBaseUrl, setApiBaseUrl] = useState<string>("");
+export const dynamic = "force-dynamic"
 
-  React.useEffect(() => {
-    const envBase = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const isLocalEnv =
-      envBase?.includes("localhost") ||
-      envBase?.includes("127.0.0.1") ||
-      envBase?.includes("[::1]");
-    const base = envBase && !isLocalEnv ? envBase : origin;
-    if (base) {
-      setApiBaseUrl(`${base}/api/plugin`);
-    }
-  }, []);
+type RecentVideo = {
+  id: string
+  title: string
+  duration: number | null
+  views: number
+  status: string
+  createdAt: Date
+  thumbnailUrl: string | null
+}
 
-  const stats = {
-    totalVideos: 24,
-    totalViews: 12840,
-    storageUsed: 4.2,
-    storageLimit: 10,
-  };
+const bytesToDisplay = (bytes: bigint | number | null | undefined) => {
+  const value = typeof bytes === "bigint" ? Number(bytes) : bytes ?? 0
+  if (!Number.isFinite(value) || value <= 0) return "0 B"
 
-  const recentVideos = [
-    {
-      id: "vid_001",
-      title: "แนะนำสินค้าใหม่ 2024",
-      duration: "3:24",
-      views: 1240,
-      status: "active",
-      createdAt: "2 ชั่วโมงที่แล้ว",
-      endpoint: "https://api.media.example.com/v/vid_001",
+  const units = ["B", "KB", "MB", "GB", "TB"]
+  const unitIndex = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1)
+  const amount = value / 1024 ** unitIndex
+  const digits = amount >= 100 || unitIndex === 0 ? 0 : amount >= 10 ? 1 : 2
+
+  return `${amount.toLocaleString("th-TH", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  })} ${units[unitIndex]}`
+}
+
+const formatDuration = (seconds: number | null) => {
+  if (!seconds || seconds < 0) return "--:--"
+
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const remainingSeconds = seconds % 60
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`
+  }
+
+  return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`
+}
+
+const formatRelativeDate = (date: Date) => {
+  const diffMs = Date.now() - date.getTime()
+  const minute = 60 * 1000
+  const hour = 60 * minute
+  const day = 24 * hour
+
+  if (diffMs < minute) return "เมื่อสักครู่"
+  if (diffMs < hour) return `${Math.floor(diffMs / minute).toLocaleString("th-TH")} นาทีที่แล้ว`
+  if (diffMs < day) return `${Math.floor(diffMs / hour).toLocaleString("th-TH")} ชั่วโมงที่แล้ว`
+  if (diffMs < 30 * day) return `${Math.floor(diffMs / day).toLocaleString("th-TH")} วันที่แล้ว`
+
+  return date.toLocaleDateString("th-TH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  })
+}
+
+const getDashboardData = async () => {
+  const [videoCount, viewsAggregate, storageAggregate, uniqueViewerCount, recentVideos] = await Promise.all([
+    prisma.video.count(),
+    prisma.video.aggregate({
+      _sum: {
+        views: true,
+      },
+    }),
+    prisma.video.aggregate({
+      _sum: {
+        fileSize: true,
+      },
+      _count: {
+        fileSize: true,
+      },
+    }),
+    prisma.videoView.count(),
+    prisma.video.findMany({
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: 5,
+      select: {
+        id: true,
+        title: true,
+        duration: true,
+        views: true,
+        status: true,
+        createdAt: true,
+        thumbnailUrl: true,
+      },
+    }),
+  ])
+
+  return {
+    stats: {
+      totalVideos: videoCount,
+      totalViews: viewsAggregate._sum.views ?? 0,
+      uniqueViewers: uniqueViewerCount,
+      storageUsed: storageAggregate._sum.fileSize ?? BigInt(0),
+      videosWithSize: storageAggregate._count.fileSize,
     },
-    {
-      id: "vid_002",
-      title: "วิธีการใช้งานแอปพลิเคชัน",
-      duration: "8:15",
-      views: 856,
-      status: "active",
-      createdAt: "1 วันที่แล้ว",
-      endpoint: "https://api.media.example.com/v/vid_002",
-    },
-    {
-      id: "vid_003",
-      title: "Webinar: Digital Marketing 101",
-      duration: "45:30",
-      views: 2100,
-      status: "active",
-      createdAt: "3 วันที่แล้ว",
-      endpoint: "https://api.media.example.com/v/vid_003",
-    },
-  ];
+    recentVideos,
+  }
+}
 
-  const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
+const statusLabel = (status: string) => {
+  if (status === "READY") return "เผยแพร่"
+  if (status === "PROCESSING") return "กำลังประมวลผล"
+  if (status === "FAILED") return "ล้มเหลว"
+  return status
+}
+
+const statusClassName = (status: string) => {
+  if (status === "READY") return "bg-green-100 text-green-700"
+  if (status === "PROCESSING") return "bg-amber-100 text-amber-700"
+  if (status === "FAILED") return "bg-red-100 text-red-700"
+  return "bg-slate-100 text-slate-700"
+}
+
+export default async function DashboardPage() {
+  const { stats, recentVideos } = await getDashboardData()
 
   return (
     <div className="min-h-screen bg-slate-50">
-
-      <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        {/* Welcome + Quick Upload */}
-        <section className="flex flex-col lg:flex-row gap-4 items-start">
+      <main className="mx-auto max-w-6xl space-y-6 px-4 py-6">
+        <section className="flex flex-col items-start gap-4 lg:flex-row">
           <div className="flex-1">
-            <h1 className="text-xl font-bold text-slate-900">
-              สวัสดี, ผู้ดูแลระบบ 👋
-            </h1>
-            <p className="text-slate-500 text-sm mt-1">
-              จัดการวิดีโอและสร้าง API Endpoint สำหรับ WordPress ของคุณ
+            <h1 className="text-xl font-bold text-slate-900">แดชบอร์ดคลังวิดีโอ</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              ภาพรวมข้อมูลจริงจากฐานข้อมูลสำหรับวิดีโอ ผู้ชม และพื้นที่จัดเก็บ
             </p>
           </div>
 
-          {/* Quick Upload Card */}
-          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm w-full lg:w-auto">
+          <div className="w-full rounded-xl border border-slate-200 bg-white p-4 shadow-sm lg:w-auto">
             <div className="flex items-center gap-4">
-              <div className="h-11 w-11 rounded-lg bg-blue-50 flex items-center justify-center">
+              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-blue-50">
                 <Upload className="h-5 w-5 text-blue-600" />
               </div>
               <div>
-                <p className="font-medium text-slate-900 text-sm">
-                  อัพโหลดวิดีโอใหม่
-                </p>
-                <p className="text-xs text-slate-500">
-                  ลากไฟล์หรือคลิกเพื่อเลือก
-                </p>
+                <p className="text-sm font-medium text-slate-900">อัปโหลดวิดีโอใหม่</p>
+                <p className="text-xs text-slate-500">เพิ่มไฟล์เข้าสู่คลังสื่อของคุณ</p>
               </div>
-              <button className="ml-4 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1 transition-colors">
+              <Link
+                href="/videos/upload"
+                className="ml-4 flex items-center gap-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+              >
                 <Plus className="h-4 w-4" />
-                อัพโหลด
-              </button>
+                อัปโหลด
+              </Link>
             </div>
           </div>
         </section>
 
-        {/* Stats Cards */}
-        <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+        <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-slate-500">วิดีโอทั้งหมด</p>
-                <p className="text-2xl font-bold text-slate-900 mt-1">
-                  {stats.totalVideos}
+                <p className="mt-1 text-2xl font-bold text-slate-900">
+                  {stats.totalVideos.toLocaleString("th-TH")}
                 </p>
               </div>
-              <div className="h-10 w-10 rounded-full bg-blue-50 flex items-center justify-center">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50">
                 <Video className="h-5 w-5 text-blue-500" />
               </div>
             </div>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-slate-500">ยอดเข้าชมรวม</p>
-                <p className="text-2xl font-bold text-slate-900 mt-1">
-                  {stats.totalViews.toLocaleString()}
+                <p className="text-xs text-slate-500">ผู้ดูจริง</p>
+                <p className="mt-1 text-2xl font-bold text-slate-900">
+                  {stats.uniqueViewers.toLocaleString("th-TH")}
                 </p>
               </div>
-              <div className="h-10 w-10 rounded-full bg-green-50 flex items-center justify-center">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-50">
                 <Eye className="h-5 w-5 text-green-500" />
               </div>
             </div>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-slate-500">พื้นที่ใช้งาน</p>
-                <p className="text-2xl font-bold text-slate-900 mt-1">
-                  {stats.storageUsed} GB
-                </p>
-              </div>
-              <div className="h-10 w-10 rounded-full bg-orange-50 flex items-center justify-center">
-                <HardDrive className="h-5 w-5 text-orange-500" />
-              </div>
-            </div>
-            <div className="w-full bg-slate-100 rounded-full h-1.5 mt-3">
-              <div
-                className="bg-orange-500 h-1.5 rounded-full"
-                style={{
-                  width: `${(stats.storageUsed / stats.storageLimit) * 100}%`,
-                }}
-              ></div>
-            </div>
-            <p className="text-xs text-slate-400 mt-1">
-              {stats.storageLimit - stats.storageUsed} GB เหลืออยู่
+            <p className="mt-3 text-xs text-slate-400">
+              ยอดวิวรวม: {stats.totalViews.toLocaleString("th-TH")}
             </p>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-slate-500">พื้นที่ใช้งานจริง</p>
+                <p className="mt-1 text-2xl font-bold text-slate-900">{bytesToDisplay(stats.storageUsed)}</p>
+              </div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-50">
+                <HardDrive className="h-5 w-5 text-orange-500" />
+              </div>
+            </div>
+            <div className="mt-3 h-1.5 w-full rounded-full bg-slate-100">
+              <div
+                className="h-1.5 rounded-full bg-orange-500"
+                style={{ width: stats.storageUsed > BigInt(0) ? "100%" : "0%" }}
+              />
+            </div>
+            <p className="mt-1 text-xs text-slate-400">
+              จากวิดีโอที่มีขนาดไฟล์ {stats.videosWithSize.toLocaleString("th-TH")} รายการ
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-slate-500">API Status</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-green-500"></span>
                   <p className="text-lg font-semibold text-green-600">Online</p>
                 </div>
               </div>
-              <div className="h-10 w-10 rounded-full bg-green-50 flex items-center justify-center">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-50">
                 <CheckCircle2 className="h-5 w-5 text-green-500" />
               </div>
             </div>
           </div>
         </section>
 
-        {/* API Base URL */}
-        <div className="border-2 border-dashed border-blue-200 bg-blue-50/50 rounded-xl p-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-blue-700 mb-2">
-                🔗 API Base URL สำหรับ WordPress Plugin
-              </p>
-              <code className="text-sm bg-white px-3 py-1.5 rounded-lg border border-blue-200 inline-block text-slate-700 font-mono">
-                {apiBaseUrl || "/api/plugin"}
-              </code>
-            </div>
-            <div className="flex gap-2">
-              <button
-                className="border border-slate-200 bg-white hover:bg-slate-50 px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5 transition-colors"
-                onClick={() => copyToClipboard(apiBaseUrl || "/api/plugin", "api")}
-              >
-                {copiedId === "api" ? (
-                  <Check className="h-4 w-4 text-green-500" />
-                ) : (
-                  <Copy className="h-4 w-4 text-slate-500" />
-                )}
-                {copiedId === "api" ? "คัดลอกแล้ว" : "คัดลอก"}
-              </button>
-              <Link
-                href="/api-docs"
-                className="border border-slate-200 bg-white hover:bg-slate-50 px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5 transition-colors"
-              >
-                <ExternalLink className="h-4 w-4 text-slate-500" />
-                API Docs
-              </Link>
-            </div>
-          </div>
-        </div>
+        <ApiBaseUrlCard />
 
-        {/* Recent Videos */}
         <section>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-slate-900">
-              วิดีโอล่าสุด
-            </h2>
-            <button className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-              ดูทั้งหมด →
-            </button>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-slate-900">วิดีโอล่าสุด</h2>
+            <Link href="/videos" className="text-sm font-medium text-blue-600 hover:text-blue-700">
+              ดูทั้งหมด
+            </Link>
           </div>
 
-          <div className="space-y-3">
-            {recentVideos.map((video) => (
-              <div
-                key={video.id}
-                className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow"
-              >
-                <div className="flex items-center gap-4 p-4">
-                  {/* Thumbnail */}
-                  <div className="relative flex-shrink-0 group cursor-pointer">
-                    <div className="w-32 h-20 bg-gradient-to-br from-slate-200 to-slate-300 rounded-lg overflow-hidden flex items-center justify-center">
-                      <Video className="h-8 w-8 text-slate-400" />
-                    </div>
-                    <div className="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1.5 py-0.5 rounded font-mono">
-                      {video.duration}
-                    </div>
-                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 rounded-lg">
-                      <Play className="h-8 w-8 text-white" fill="white" />
-                    </div>
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-medium text-slate-900 truncate">
-                      {video.title}
-                    </h3>
-                    <div className="flex items-center gap-3 text-sm text-slate-500 mt-1">
-                      <span className="flex items-center gap-1">
-                        <Eye className="h-3.5 w-3.5" />
-                        {video.views.toLocaleString()}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3.5 w-3.5" />
-                        {video.createdAt}
-                      </span>
-                      <span className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full font-medium">
-                        เผยแพร่
-                      </span>
-                    </div>
-
-                    {/* Endpoint */}
-                    <div className="flex items-center gap-2 mt-2">
-                      <code className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-600 truncate max-w-xs font-mono">
-                        {video.endpoint}
-                      </code>
-                      <button
-                        className="h-6 w-6 flex items-center justify-center hover:bg-slate-100 rounded transition-colors flex-shrink-0"
-                        onClick={() =>
-                          copyToClipboard(video.endpoint, video.id)
-                        }
-                      >
-                        {copiedId === video.id ? (
-                          <Check className="h-3.5 w-3.5 text-green-500" />
+          {recentVideos.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center">
+              <Video className="mx-auto h-10 w-10 text-slate-300" />
+              <p className="mt-3 font-medium text-slate-900">ยังไม่มีวิดีโอในระบบ</p>
+              <p className="mt-1 text-sm text-slate-500">เริ่มจากการอัปโหลดวิดีโอแรกของคุณ</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {recentVideos.map((video: RecentVideo) => (
+                <div
+                  key={video.id}
+                  className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md"
+                >
+                  <div className="flex items-center gap-4 p-4">
+                    <Link href={`/videos/${video.id}`} className="group relative flex-shrink-0">
+                      <div className="flex h-20 w-32 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-slate-200 to-slate-300">
+                        {video.thumbnailUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={video.thumbnailUrl} alt="" className="h-full w-full object-cover" />
                         ) : (
-                          <Copy className="h-3.5 w-3.5 text-slate-400" />
+                          <Video className="h-8 w-8 text-slate-400" />
                         )}
+                      </div>
+                      <div className="absolute bottom-1 right-1 rounded bg-black/80 px-1.5 py-0.5 font-mono text-xs text-white">
+                        {formatDuration(video.duration)}
+                      </div>
+                      <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
+                        <Play className="h-8 w-8 text-white" fill="white" />
+                      </div>
+                    </Link>
+
+                    <div className="min-w-0 flex-1">
+                      <Link href={`/videos/${video.id}`} className="block truncate font-medium text-slate-900 hover:text-blue-700">
+                        {video.title}
+                      </Link>
+                      <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-slate-500">
+                        <span className="flex items-center gap-1">
+                          <Eye className="h-3.5 w-3.5" />
+                          {video.views.toLocaleString("th-TH")}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3.5 w-3.5" />
+                          {formatRelativeDate(video.createdAt)}
+                        </span>
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusClassName(video.status)}`}>
+                          {statusLabel(video.status)}
+                        </span>
+                      </div>
+
+                      <div className="mt-2 flex items-center gap-2">
+                        <code className="max-w-xs truncate rounded bg-slate-100 px-2 py-1 font-mono text-xs text-slate-600">
+                          /api/plugin/videos/{video.id}
+                        </code>
+                        <CopyEndpointButton path={`/api/plugin/videos/${video.id}`} id={video.id} />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/videos/${video.id}/edit`}
+                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-slate-50"
+                      >
+                        แก้ไข
+                      </Link>
+                      <button className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-slate-100">
+                        <MoreVertical className="h-4 w-4 text-slate-400" />
                       </button>
                     </div>
                   </div>
-
-                  {/* Actions */}
-                  <div className="flex items-center gap-2">
-                    <button className="border border-slate-200 hover:bg-slate-50 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
-                      แก้ไข
-                    </button>
-                    <button className="h-8 w-8 flex items-center justify-center hover:bg-slate-100 rounded-lg transition-colors">
-                      <MoreVertical className="h-4 w-4 text-slate-400" />
-                    </button>
-                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </section>
 
-        {/* Quick Tips */}
-        <div className="bg-slate-100 rounded-xl p-5">
-          <h3 className="font-semibold text-slate-900 text-sm mb-3">
-            💡 วิธีใช้งานกับ WordPress
-          </h3>
-          <div className="space-y-2 text-sm text-slate-600">
-            <p>
-              1. ติดตั้ง Plugin "Media Library Connector" บน WordPress ของคุณ
-            </p>
-            <p>2. ไปที่ Settings → Media Library → ใส่ API URL และ API Key</p>
-            <p>3. เลือกวิดีโอจากคลังนี้เพื่อ Embed ในโพสต์หรือหน้าของคุณ</p>
+        <div className="rounded-xl bg-slate-100 p-5">
+          <h3 className="mb-3 text-sm font-semibold text-slate-900">เครื่องมือที่เกี่ยวข้อง</h3>
+          <div className="grid gap-3 text-sm text-slate-600 sm:grid-cols-3">
+            <Link href="/videos" className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 hover:bg-slate-50">
+              <Video className="h-4 w-4 text-slate-500" />
+              จัดการวิดีโอ
+            </Link>
+            <Link href="/api-docs" className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 hover:bg-slate-50">
+              <FileText className="h-4 w-4 text-slate-500" />
+              API Docs
+            </Link>
+            <Link href="/admin/tokens" className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 hover:bg-slate-50">
+              <Settings className="h-4 w-4 text-slate-500" />
+              API Tokens
+            </Link>
           </div>
-          <button className="text-blue-600 hover:text-blue-700 text-sm font-medium mt-3">
-            อ่านคู่มือฉบับเต็ม →
-          </button>
         </div>
       </main>
     </div>
-  );
+  )
 }
