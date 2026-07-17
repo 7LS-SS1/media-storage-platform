@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { VideoControls } from "@/components/video-controls"
+import { usePlaybackProtection } from "@/hooks/use-playback-protection"
 import { useVideoControls } from "@/hooks/use-video-controls"
 import { isBlockedVideoAccessError, toBlockedVideoAccessMessage } from "@/lib/video-access-block"
 
@@ -28,21 +29,24 @@ export function VideoPlayer({ videoId }: VideoPlayerProps) {
   const playerRef = useRef<any | null>(null)
   const hasTrackedRef = useRef(false)
   const hasShownBlockedAlertRef = useRef(false)
-  const videoType = useMemo(() => {
-    if (!videoUrl) return "video/mp4"
-    const cleanUrl = videoUrl.split("?")[0].toLowerCase()
-    if (cleanUrl.endsWith(".webm")) return "video/webm"
-    if (cleanUrl.endsWith(".mov")) return "video/quicktime"
-    if (cleanUrl.endsWith(".avi")) return "video/x-msvideo"
-    if (cleanUrl.endsWith(".ts")) return "video/mp2t"
-    return "video/mp4"
-  }, [videoUrl])
+  const handleProtectedPlaybackBlocked = useCallback((message: string) => {
+    if (playerRef.current) {
+      playerRef.current.destroy()
+      playerRef.current = null
+    }
+    setVideoUrl(null)
+    setError(message)
+  }, [])
   const isTsVideo = useMemo(() => {
     if (!videoUrl) return false
     const cleanUrl = videoUrl.split("?")[0].toLowerCase()
     return cleanUrl.endsWith(".ts")
   }, [videoUrl])
   const controls = useVideoControls({ videoRef, containerRef, sourceUrl: videoUrl })
+  const protection = usePlaybackProtection({
+    videoRef,
+    onBlocked: handleProtectedPlaybackBlocked,
+  })
 
   useEffect(() => {
     hasTrackedRef.current = false
@@ -189,10 +193,10 @@ export function VideoPlayer({ videoId }: VideoPlayerProps) {
     )
   }
 
-  if (error) {
+  if (error || protection.isBlocked) {
     return (
       <Card className="aspect-video bg-muted flex items-center justify-center">
-        <p className="text-muted-foreground">{error}</p>
+        <p className="px-6 text-center text-muted-foreground">{error}</p>
       </Card>
     )
   }
@@ -215,7 +219,7 @@ export function VideoPlayer({ videoId }: VideoPlayerProps) {
 
   return (
     <Card className="overflow-hidden">
-      <div ref={containerRef} className="relative bg-black">
+      <div ref={containerRef} className="relative bg-black" onContextMenu={(event) => event.preventDefault()}>
         {status === "PROCESSING" && (
           <div className="absolute left-3 top-3 z-10 rounded-full bg-black/70 px-3 py-1 text-xs text-white">
             Processing
@@ -223,14 +227,17 @@ export function VideoPlayer({ videoId }: VideoPlayerProps) {
         )}
         <video
           ref={videoRef}
+          src={!isTsVideo ? videoUrl : undefined}
           className="w-full aspect-video bg-black"
           playsInline
           preload="metadata"
           onPlay={trackView}
-        >
-          {!isTsVideo && <source src={videoUrl} type={videoType} />}
-          Your browser does not support the video tag.
-        </video>
+          onContextMenu={(event) => event.preventDefault()}
+          onDragStart={(event) => event.preventDefault()}
+          controlsList="nodownload noremoteplayback noplaybackrate"
+          disablePictureInPicture
+          disableRemotePlayback
+        />
         <VideoControls
           isPlaying={controls.isPlaying}
           isMuted={controls.isMuted}

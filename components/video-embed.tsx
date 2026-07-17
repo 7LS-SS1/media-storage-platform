@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AlertCircle, Lock } from "lucide-react"
 import { VideoControls } from "@/components/video-controls"
+import { usePlaybackProtection } from "@/hooks/use-playback-protection"
 import { useVideoControls } from "@/hooks/use-video-controls"
 import { isBlockedVideoAccessError, toBlockedVideoAccessMessage } from "@/lib/video-access-block"
 
@@ -27,24 +28,26 @@ export function VideoEmbed({ videoId, initialVideo, initialError }: VideoEmbedPr
   const hasTrackedRef = useRef(false)
   const hasShownBlockedAlertRef = useRef(false)
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
+  const handleProtectedPlaybackBlocked = useCallback((message: string) => {
+    if (playerRef.current) {
+      playerRef.current.destroy()
+      playerRef.current = null
+    }
+    setRuntimeError(message)
+  }, [])
   const video = initialVideo
   const error = toBlockedVideoAccessMessage(initialError ?? runtimeError, null)
   const videoUrl = video?.videoUrl ?? null
-  const videoType = useMemo(() => {
-    if (!videoUrl) return "video/mp4"
-    const cleanUrl = videoUrl.split("?")[0].toLowerCase()
-    if (cleanUrl.endsWith(".webm")) return "video/webm"
-    if (cleanUrl.endsWith(".mov")) return "video/quicktime"
-    if (cleanUrl.endsWith(".avi")) return "video/x-msvideo"
-    if (cleanUrl.endsWith(".ts")) return "video/mp2t"
-    return "video/mp4"
-  }, [videoUrl])
   const isTsVideo = useMemo(() => {
     if (!videoUrl) return false
     const cleanUrl = videoUrl.split("?")[0].toLowerCase()
     return cleanUrl.endsWith(".ts")
   }, [videoUrl])
   const controls = useVideoControls({ videoRef, containerRef, sourceUrl: videoUrl })
+  const protection = usePlaybackProtection({
+    videoRef,
+    onBlocked: handleProtectedPlaybackBlocked,
+  })
 
   useEffect(() => {
     hasTrackedRef.current = false
@@ -130,7 +133,7 @@ export function VideoEmbed({ videoId, initialVideo, initialError }: VideoEmbedPr
     }
   }, [isTsVideo, videoUrl])
 
-  if (error) {
+  if (error || protection.isBlocked) {
     return (
       <div className="w-full h-screen flex items-center justify-center bg-black">
         <div className="text-white text-center space-y-4">
@@ -157,18 +160,21 @@ export function VideoEmbed({ videoId, initialVideo, initialError }: VideoEmbedPr
   }
 
   return (
-    <div className="w-full h-screen">
+    <div className="w-full h-screen" onContextMenu={(event) => event.preventDefault()}>
       <div ref={containerRef} className="relative h-full w-full bg-black">
         <video
           ref={videoRef}
+          src={!isTsVideo ? video.videoUrl : undefined}
           autoPlay
           className="h-full w-full bg-black object-contain"
           title={video.title}
           onPlay={trackView}
-        >
-          {!isTsVideo && <source src={video.videoUrl} type={videoType} />}
-          Your browser does not support the video tag.
-        </video>
+          onContextMenu={(event) => event.preventDefault()}
+          onDragStart={(event) => event.preventDefault()}
+          controlsList="nodownload noremoteplayback noplaybackrate"
+          disablePictureInPicture
+          disableRemotePlayback
+        />
         <VideoControls
           isPlaying={controls.isPlaying}
           isMuted={controls.isMuted}
