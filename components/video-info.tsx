@@ -17,7 +17,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { Eye, Calendar, User, Edit, Trash2, Loader2 } from "lucide-react"
+import { Eye, Calendar, User, Edit, Trash2, Loader2, Download, ImageIcon } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import Link from "next/link"
 import { EmbedCodeDialog } from "@/components/embed-code-dialog"
@@ -33,6 +33,7 @@ interface Video {
   visibility: string
   status: string
   videoUrl: string
+  thumbnailUrl: string | null
   mimeType?: string | null
   transcodeProgress?: number | null
   createdAt: string
@@ -207,6 +208,7 @@ export function VideoInfo({ videoId }: VideoInfoProps) {
     mp4Status = "MP4: Processing"
   }
   const progressValue = typeof video.transcodeProgress === "number" ? video.transcodeProgress : null
+  const thumbnailFilename = `${video.title || video.id}-thumbnail`.replace(/[\\/:*?"<>|]+/g, "-")
   const transcodeSteps = [
     { id: "request", label: "ส่งคำสั่งแปลงไฟล์" },
     { id: "processing", label: "ส่งเข้าคิวแปลงไฟล์ MP4" },
@@ -239,6 +241,42 @@ export function VideoInfo({ videoId }: VideoInfoProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">{video.description || "No description"}</p>
+
+          <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-medium text-foreground">รูปหน้าปก</p>
+                <p className="text-xs text-muted-foreground">
+                  {video.thumbnailUrl ? "รูปที่ใช้แสดงเป็นหน้าปกของวิดีโอนี้" : "ยังไม่มีรูปหน้าปกสำหรับวิดีโอนี้"}
+                </p>
+              </div>
+              {video.thumbnailUrl && (
+                <Button variant="outline" size="sm" asChild className="w-full bg-transparent sm:w-auto">
+                  <a href={video.thumbnailUrl} download={thumbnailFilename} target="_blank" rel="noreferrer">
+                    <Download className="h-4 w-4 mr-2" />
+                    ดาวน์โหลดรูปหน้าปก
+                  </a>
+                </Button>
+              )}
+            </div>
+
+            {video.thumbnailUrl ? (
+              <div className="overflow-hidden rounded-md border bg-background">
+                <img
+                  src={video.thumbnailUrl}
+                  alt={`รูปหน้าปกของ ${video.title}`}
+                  className="aspect-video w-full object-cover"
+                />
+              </div>
+            ) : (
+              <div className="flex aspect-video w-full items-center justify-center rounded-md border border-dashed bg-background text-muted-foreground">
+                <div className="flex flex-col items-center gap-2 text-sm">
+                  <ImageIcon className="h-8 w-8" />
+                  <span>ไม่มีรูปหน้าปก</span>
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="flex flex-wrap gap-2">
             <Badge>{video.visibility}</Badge>
