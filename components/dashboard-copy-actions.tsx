@@ -3,12 +3,11 @@
 import React from "react"
 import Link from "next/link"
 import { Check, Copy, ExternalLink } from "lucide-react"
-
-const getOrigin = () => (typeof window === "undefined" ? "" : window.location.origin)
+import { getPublicOrigin } from "@/lib/public-origin"
 
 const toAbsoluteUrl = (path: string) => {
   if (/^https?:\/\//i.test(path)) return path
-  const origin = getOrigin()
+  const origin = getPublicOrigin()
   return origin ? `${origin}${path.startsWith("/") ? path : `/${path}`}` : path
 }
 
@@ -17,14 +16,7 @@ export function ApiBaseUrlCard() {
   const [apiBaseUrl, setApiBaseUrl] = React.useState("/api/plugin")
 
   React.useEffect(() => {
-    const envBase = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "")
-    const origin = getOrigin()
-    const isLocalEnv =
-      envBase?.includes("localhost") ||
-      envBase?.includes("127.0.0.1") ||
-      envBase?.includes("[::1]")
-    const base = envBase && !isLocalEnv ? envBase : origin
-
+    const base = getPublicOrigin()
     setApiBaseUrl(base ? `${base}/api/plugin` : "/api/plugin")
   }, [])
 

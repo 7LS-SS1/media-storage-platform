@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Code, Copy, Check } from "lucide-react"
 import { toast } from "sonner"
+import { getPublicOrigin } from "@/lib/public-origin"
 
 interface EmbedCodeDialogProps {
   videoId: string
@@ -27,7 +28,7 @@ export function EmbedCodeDialog({ videoId, videoTitle }: EmbedCodeDialogProps) {
   const [width, setWidth] = useState("640")
   const [height, setHeight] = useState("360")
 
-  const embedUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/embed/${videoId}`
+  const embedUrl = `${getPublicOrigin()}/embed/${videoId}`
   const safeVideoTitle = escapeHtmlAttribute(videoTitle)
 
   const embedCode = `<iframe

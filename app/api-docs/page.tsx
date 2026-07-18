@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { getPublicOrigin } from "@/lib/public-origin"
 
 type HttpMethod = "GET" | "POST" | "PUT" | "DELETE"
 
@@ -265,9 +266,7 @@ export default function ApiDocsPage() {
   const [searchQuery, setSearchQuery] = useState("")
 
   useEffect(() => {
-    const envBase = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "")
-    const origin = typeof window !== "undefined" ? window.location.origin : ""
-    const base = envBase || origin
+    const base = getPublicOrigin()
     if (base) setBaseUrl(`${base}/api`)
   }, [])
 

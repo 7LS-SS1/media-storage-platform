@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 const BLOCKED_MESSAGE = "Video playback was stopped because browser developer tools were detected."
 const DEVTOOLS_SIZE_THRESHOLD = 170
+const DEVTOOLS_TIMING_THRESHOLD_MS = 100
 
 type UsePlaybackProtectionOptions = {
   videoRef: RefObject<HTMLVideoElement | null>
@@ -31,16 +32,33 @@ const isRunningInIframe = () => {
   }
 }
 
-const isDevToolsLikelyOpen = () => {
+const isDevToolsLikelyOpenBySize = () => {
   if (typeof window === "undefined") return false
   // outerWidth/outerHeight reflect the top browser window, not the iframe's
-  // own viewport, so the size-gap heuristic produces false positives whenever
-  // this runs inside an embed iframe smaller than the browser window.
+  // own viewport, so this heuristic produces false positives whenever it runs
+  // inside an embed iframe smaller than the browser window. Only use it at
+  // the top level, where outer/inner dimensions describe the same window.
   if (isRunningInIframe()) return false
   const widthGap = Math.abs(window.outerWidth - window.innerWidth)
   const heightGap = Math.abs(window.outerHeight - window.innerHeight)
   return widthGap > DEVTOOLS_SIZE_THRESHOLD || heightGap > DEVTOOLS_SIZE_THRESHOLD
 }
+
+// Built from a string (not a literal `debugger;` statement) so production
+// minification can't statically detect and strip it via drop_debugger.
+const runDebuggerStatement = new Function("debugger")
+
+const isDevToolsLikelyOpenByTiming = () => {
+  if (typeof window === "undefined" || typeof performance === "undefined") return false
+  // Pauses execution when DevTools is open (any panel), regardless of window
+  // geometry, so this works inside cross-origin iframes where
+  // outerWidth/innerWidth can't be compared meaningfully.
+  const start = performance.now()
+  runDebuggerStatement()
+  return performance.now() - start > DEVTOOLS_TIMING_THRESHOLD_MS
+}
+
+const isDevToolsLikelyOpen = () => isDevToolsLikelyOpenBySize() || isDevToolsLikelyOpenByTiming()
 
 export function usePlaybackProtection({ videoRef, onBlocked }: UsePlaybackProtectionOptions) {
   const [isBlocked, setIsBlocked] = useState(false)
