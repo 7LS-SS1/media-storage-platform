@@ -22,8 +22,21 @@ const isInspectShortcut = (event: KeyboardEvent) => {
   )
 }
 
+const isRunningInIframe = () => {
+  if (typeof window === "undefined") return false
+  try {
+    return window.self !== window.top
+  } catch {
+    return true
+  }
+}
+
 const isDevToolsLikelyOpen = () => {
   if (typeof window === "undefined") return false
+  // outerWidth/outerHeight reflect the top browser window, not the iframe's
+  // own viewport, so the size-gap heuristic produces false positives whenever
+  // this runs inside an embed iframe smaller than the browser window.
+  if (isRunningInIframe()) return false
   const widthGap = Math.abs(window.outerWidth - window.innerWidth)
   const heightGap = Math.abs(window.outerHeight - window.innerHeight)
   return widthGap > DEVTOOLS_SIZE_THRESHOLD || heightGap > DEVTOOLS_SIZE_THRESHOLD
