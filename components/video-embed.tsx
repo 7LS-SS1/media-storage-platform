@@ -17,6 +17,7 @@ interface VideoData {
   id: string
   title: string
   videoUrl: string
+  thumbnailUrl: string | null
   visibility: string
   status: string
 }
@@ -111,10 +112,6 @@ export function VideoEmbed({ videoId, initialVideo, initialError }: VideoEmbedPr
         playerRef.current = player
         player.attachMediaElement(mediaElement)
         player.load()
-
-        if (mediaElement.autoplay) {
-          mediaElement.play().catch(() => undefined)
-        }
       } catch (err) {
         if (!cancelled) {
           setRuntimeError("Failed to load TS player")
@@ -165,7 +162,8 @@ export function VideoEmbed({ videoId, initialVideo, initialError }: VideoEmbedPr
         <video
           ref={videoRef}
           src={!isTsVideo ? video.videoUrl : undefined}
-          autoPlay
+          poster={video.thumbnailUrl ?? undefined}
+          preload="metadata"
           className="h-full w-full bg-black object-contain"
           title={video.title}
           onPlay={trackView}

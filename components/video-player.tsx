@@ -15,12 +15,15 @@ type VideoPayload = {
   video?: {
     videoUrl?: string | null
     video_url?: string | null
+    thumbnailUrl?: string | null
+    thumbnail_url?: string | null
     status?: string | null
   }
 }
 
 export function VideoPlayer({ videoId }: VideoPlayerProps) {
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -70,9 +73,11 @@ export function VideoPlayer({ videoId }: VideoPlayerProps) {
     let isMounted = true
     const applyVideoPayload = (payload: VideoPayload) => {
       const url = payload.video?.videoUrl ?? payload.video?.video_url ?? null
+      const thumbnail = payload.video?.thumbnailUrl ?? payload.video?.thumbnail_url ?? null
       const nextStatus = payload.video?.status ?? null
       if (!isMounted) return
       setVideoUrl(url)
+      setThumbnailUrl(thumbnail)
       setStatus(nextStatus)
     }
 
@@ -80,6 +85,7 @@ export function VideoPlayer({ videoId }: VideoPlayerProps) {
       setLoading(true)
       setError(null)
       setVideoUrl(null)
+      setThumbnailUrl(null)
       setStatus(null)
       try {
         const response = await fetch(`/api/videos/${videoId}`, { credentials: "include" })
@@ -228,6 +234,7 @@ export function VideoPlayer({ videoId }: VideoPlayerProps) {
         <video
           ref={videoRef}
           src={!isTsVideo ? videoUrl : undefined}
+          poster={thumbnailUrl ?? undefined}
           className="w-full aspect-video bg-black"
           playsInline
           preload="metadata"

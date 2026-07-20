@@ -8,6 +8,7 @@ export interface EmbedVideoPayload {
   id: string
   title: string
   videoUrl: string
+  thumbnailUrl: string | null
   visibility: string
   status: string
 }
@@ -67,6 +68,7 @@ export async function resolveEmbedVideo(videoId: string, requestingDomain: strin
       id: video.id,
       title: video.title,
       videoUrl: resolvedVideoUrl ?? normalizeR2Url(video.videoUrl, bucket) ?? video.videoUrl,
+      thumbnailUrl: normalizeR2Url(video.thumbnailUrl, bucket),
       visibility: video.visibility,
       status: video.status,
     },
