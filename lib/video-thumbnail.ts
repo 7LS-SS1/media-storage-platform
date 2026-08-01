@@ -1,5 +1,6 @@
 import { createWriteStream, promises as fs } from "fs"
 import { Readable } from "stream"
+import type { ReadableStream as NodeReadableStream } from "stream/web"
 import { pipeline } from "stream/promises"
 import { spawn } from "child_process"
 import os from "os"
@@ -20,7 +21,7 @@ const downloadToFile = async (url: string, targetPath: string) => {
   }
 
   const fileStream = createWriteStream(targetPath)
-  await pipeline(Readable.fromWeb(response.body as unknown as ReadableStream), fileStream)
+  await pipeline(Readable.fromWeb(response.body as unknown as NodeReadableStream), fileStream)
 }
 
 const runProcess = (command: string, args: string[]) =>

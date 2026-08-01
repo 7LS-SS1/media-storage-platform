@@ -38,13 +38,9 @@ export function DomainManager() {
   const [saving, setSaving] = useState(false)
   const [editError, setEditError] = useState("")
 
-  useEffect(() => {
-    fetchDomains()
-  }, [])
-
   const formatDate = (value: string) => new Date(value).toLocaleString()
 
-  const fetchDomains = async () => {
+  async function fetchDomains() {
     try {
       const response = await fetch("/api/domains")
       if (response.ok) {
@@ -55,6 +51,10 @@ export function DomainManager() {
       console.error("Failed to fetch domains:", error)
     }
   }
+
+  useEffect(() => {
+    fetchDomains()
+  }, [])
 
   const handleAddDomain = async (e: React.FormEvent) => {
     e.preventDefault()

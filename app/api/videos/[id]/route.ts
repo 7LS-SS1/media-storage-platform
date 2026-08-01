@@ -4,7 +4,7 @@ import { canDomainAccessVideo, getVerifiedRequestDomain } from "@/lib/domain-sec
 import { prisma } from "@/lib/prisma"
 import { canManageVideos, canViewAllVideos } from "@/lib/roles"
 import { deleteFromR2, extractR2Key, getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib/r2"
-import { deleteBunnyVideo, isBunnyStreamUrl } from "@/lib/bunny-stream"
+import { deleteBunnyVideo, isBunnyStreamEnabled, isBunnyStreamUrl } from "@/lib/bunny-stream"
 import { normalizeActors, toActorNames } from "@/lib/actors"
 import { mergeTags, normalizeTags } from "@/lib/tags"
 import { VIDEO_ACCESS_BLOCK_MESSAGE } from "@/lib/video-access-block"
@@ -401,9 +401,9 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
     // Delete the source from its configured delivery provider.
     try {
-      if (video.deliveryProvider === "bunny" && video.bunnyVideoId) {
+      if (video.deliveryProvider === "bunny" && video.bunnyVideoId && isBunnyStreamEnabled()) {
         await deleteBunnyVideo(video.bunnyVideoId)
-      } else {
+      } else if (video.deliveryProvider !== "bunny") {
         const videoKey = extractR2Key(video.videoUrl, bucket)
         if (videoKey) await deleteFromR2(videoKey, bucket)
       }

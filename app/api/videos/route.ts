@@ -13,6 +13,7 @@ import { enqueueVideoTranscode, shouldTranscodeToMp4 } from "@/lib/video-transco
 import { enqueueVideoThumbnail } from "@/lib/video-thumbnail"
 import { markMp4VideosReady } from "@/lib/video-status"
 import { parseStorageBucket, resolveStorageBucketFilter } from "@/lib/storage-bucket"
+import { isBunnyStreamEnabled } from "@/lib/bunny-stream"
 
 const mapCategories = (categories?: Array<{ id: string; name: string }> | null) =>
   (categories ?? []).map((category) => ({ id: category.id, name: category.name }))
@@ -143,6 +144,10 @@ export async function POST(request: NextRequest) {
         )
       }
     }
+    if (validatedData.deliveryProvider === "bunny" && !isBunnyStreamEnabled()) {
+      return NextResponse.json({ error: "Bunny Stream is temporarily disabled" }, { status: 503 })
+    }
+
     const cleanVideoUrl = validatedData.videoUrl.split("?")[0]?.toLowerCase() ?? ""
     const isMp4 = validatedData.mimeType?.toLowerCase() === "video/mp4" || cleanVideoUrl.endsWith(".mp4")
     const shouldTranscode = validatedData.deliveryProvider === "bunny"

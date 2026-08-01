@@ -141,10 +141,13 @@ Embed videos using iframe:
 
 ## Bunny Stream Setup
 
+> Bunny Stream is disabled by default. The application uses Cloudflare R2 until it is explicitly enabled.
+
 1. Create a Bunny Stream video library and copy its Library ID, API key, read-only API key, and CDN hostname.
 2. Configure \`BUNNY_STREAM_LIBRARY_ID\`, \`BUNNY_STREAM_API_KEY\`, \`BUNNY_STREAM_READ_ONLY_API_KEY\`, and \`BUNNY_STREAM_CDN_HOSTNAME\`.
-3. Set the Bunny Stream webhook URL to \`https://your-domain.com/api/bunny-stream/webhook\`.
-4. Allow your playback domains and CORS access in the Bunny Stream library settings.
+3. Set \`BUNNY_STREAM_ENABLED=true\` and \`NEXT_PUBLIC_BUNNY_STREAM_ENABLED=true\` only when you are ready to connect.
+4. Set the Bunny Stream webhook URL to \`https://your-domain.com/api/bunny-stream/webhook\`.
+5. Allow your playback domains and CORS access in the Bunny Stream library settings.
 
 The upload wizard can then select **Bunny Stream**. Uploads use resumable TUS directly from the browser; Bunny encodes adaptive HLS and the signed webhook updates the local video status.
 

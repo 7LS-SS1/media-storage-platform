@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
   const seoInput: SeoAnalysisInput = {
     title: generated.title,
     targetKeyword: input.targetKeyword,
-    description: generated.description,
+    description: generated.metaDescription,
     tags: generated.tags,
     thumbnailFile: input.hasThumbnail ?? false,
     movieCode: input.movieCode,

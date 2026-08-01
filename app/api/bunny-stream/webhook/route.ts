@@ -1,8 +1,13 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { isBunnyStreamEnabled } from "@/lib/bunny-stream"
 
 export async function POST(request: NextRequest) {
+  if (!isBunnyStreamEnabled()) {
+    return NextResponse.json({ error: "Bunny Stream is temporarily disabled" }, { status: 503 })
+  }
+
   const rawBody = await request.text()
   const signature = request.headers.get("x-bunnystream-signature") ?? ""
   const version = request.headers.get("x-bunnystream-signature-version")

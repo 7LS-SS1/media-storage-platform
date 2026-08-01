@@ -69,10 +69,6 @@ export function Navigation() {
     }
   }, [isEmbed])
 
-  if (isEmbed) {
-    return null
-  }
-
   const initials = useMemo(() => {
     if (!user) return ""
     const source = user.name?.trim() || user.email
@@ -82,6 +78,10 @@ export function Navigation() {
     }
     return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
   }, [user])
+
+  if (isEmbed) {
+    return null
+  }
 
   const navLinks = [
     { href: "/videos", label: "Videos" },

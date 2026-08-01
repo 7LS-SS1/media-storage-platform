@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
+import type { UserRole } from "@prisma/client"
 import { getUserFromRequest, hashPassword } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { canManageUsers, isAdmin, isStaff, isSystem } from "@/lib/roles"
@@ -66,12 +67,12 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
       email?: string
       name?: string
       password?: string
-      role?: string
+      role?: UserRole
     } = {}
 
     if (normalizedEmail) updateData.email = normalizedEmail
     if (validatedData.name) updateData.name = validatedData.name.trim()
-    if (validatedData.role) updateData.role = validatedData.role
+    if (validatedData.role) updateData.role = validatedData.role as UserRole
     if (validatedData.password) updateData.password = await hashPassword(validatedData.password)
 
     const updatedUser = await prisma.user.update({

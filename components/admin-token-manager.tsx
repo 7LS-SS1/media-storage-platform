@@ -34,6 +34,7 @@ interface ApiTokenItem {
 }
 
 export function AdminTokenManager() {
+  const [renderedAt] = useState(() => Date.now())
   const [tokenName, setTokenName] = useState("")
   const [boundDomain, setBoundDomain] = useState("")
   const [expiresInDays, setExpiresInDays] = useState<string>(String(DEFAULT_EXPIRY_DAYS))
@@ -368,7 +369,7 @@ export function AdminTokenManager() {
             {tokens.map((tokenItem) => {
               const isExpired =
                 tokenItem.revokedAt !== null ||
-                (tokenItem.expiresAt ? new Date(tokenItem.expiresAt).getTime() <= Date.now() : false)
+                (tokenItem.expiresAt ? new Date(tokenItem.expiresAt).getTime() <= renderedAt : false)
 
               return (
                 <Card key={tokenItem.id}>

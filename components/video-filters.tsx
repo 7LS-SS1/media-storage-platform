@@ -137,7 +137,7 @@ export function VideoFilters() {
         </Select>
 
         {/* Apply & Clear Buttons */}
-        <Button onClick={applyFilters} variant="default">
+        <Button onClick={() => applyFilters()} variant="default">
           Apply Filters
         </Button>
 

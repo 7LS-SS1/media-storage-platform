@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
+import { UserRole, type Prisma } from "@prisma/client"
 import { getUserFromRequest, hashPassword } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { canManageUsers, isAdmin, isStaff, isSystem } from "@/lib/roles"
@@ -24,11 +25,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    const where = isSystem(user.role)
+    const where: Prisma.UserWhereInput = isSystem(user.role)
       ? {}
       : {
           role: {
-            in: ["STAFF", "EDITOR"],
+            in: [UserRole.STAFF, UserRole.EDITOR],
           },
         }
 
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest) {
         email: normalizedEmail,
         name: validatedData.name?.trim() || undefined,
         password: hashedPassword,
-        role: validatedData.role,
+        role: validatedData.role as UserRole,
       },
       select: {
         id: true,

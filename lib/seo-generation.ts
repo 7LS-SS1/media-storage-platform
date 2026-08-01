@@ -20,7 +20,7 @@ export type SeoGenerateInput = z.infer<typeof seoGenerateInputSchema>
 const seoAiOutputSchema = z.object({
   title: z.string().min(12).max(110),
   metaTitle: z.string().min(12).max(80),
-  metaDescription: z.string().min(90).max(180),
+  metaDescription: z.string().min(90).max(160),
   description: z.string().min(100).max(420),
   tags: z.array(z.string().min(2).max(48)).min(6).max(14),
   keywordFocus: z.array(z.string().min(2).max(60)).min(2).max(6),
@@ -45,7 +45,7 @@ const OPENAI_SEO_SCHEMA = {
   properties: {
     title: { type: "string", minLength: 12, maxLength: 110 },
     metaTitle: { type: "string", minLength: 12, maxLength: 80 },
-    metaDescription: { type: "string", minLength: 90, maxLength: 180 },
+    metaDescription: { type: "string", minLength: 90, maxLength: 160 },
     description: { type: "string", minLength: 100, maxLength: 420 },
     tags: {
       type: "array",
@@ -90,7 +90,7 @@ const TITLE_MIN_LEN = 24
 const TITLE_MAX_LEN = 96
 const META_TITLE_MAX_LEN = 80
 const META_DESCRIPTION_MIN_LEN = 100
-const META_DESCRIPTION_MAX_LEN = 170
+const META_DESCRIPTION_MAX_LEN = 160
 const DESCRIPTION_MIN_LEN = 120
 const DESCRIPTION_MAX_LEN = 360
 const TAG_LIMIT = 14

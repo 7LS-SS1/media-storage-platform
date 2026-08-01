@@ -42,6 +42,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { ActorSelect } from "@/components/actor-select"
 import { StudioSelect } from "@/components/studio-select"
+import { ArtVideoPlayer } from "@/components/art-video-player"
 import { AV_GENRES } from "@/lib/av-genres"
 import { STANDARD_TAGS } from "@/lib/standard-tags"
 import { TAG_LIMIT } from "@/lib/tag-constraints"
@@ -89,6 +90,7 @@ type Visibility = "PUBLIC" | "PRIVATE" | "DOMAIN_RESTRICTED"
 type StorageBucket = "media" | "jav"
 type DeliveryProvider = "r2" | "bunny"
 type SeoStatus = "idle" | "running" | "done"
+const BUNNY_STREAM_ENABLED = process.env.NEXT_PUBLIC_BUNNY_STREAM_ENABLED === "true"
 
 // ─── Steps ───────────────────────────────────────────────────────────────────
 
@@ -104,6 +106,7 @@ const steps = [
 
 export default function UploadVideoPage() {
   const router = useRouter()
+  const handlePreviewError = useCallback((message: string) => toast.error(message), [])
   const [currentStep, setCurrentStep] = useState(1)
 
   // ── Form State ──────────────────────────────────────────────────────────────
@@ -565,8 +568,9 @@ export default function UploadVideoPage() {
       if (!response.ok) throw new Error("Generate failed")
 
       const result = await response.json()
+      const generatedMetaDescription = result.metaDescription as string
       setTitle(result.title as string)
-      setDescription(result.description as string)
+      setDescription(generatedMetaDescription)
       setTags(result.tags as string[])
       const generatorLabel =
         result.source === "openai" ? `AI SEO (${String(result.model || "OpenAI")})` : "SEO generator"
@@ -576,7 +580,7 @@ export default function UploadVideoPage() {
       await handleRunSeo({
         title: result.title as string,
         targetKeyword,
-        description: result.description as string,
+        description: generatedMetaDescription,
         tags: result.tags as string[],
       })
     } catch (error) {
@@ -1207,11 +1211,15 @@ export default function UploadVideoPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="r2">Cloudflare R2 + HLS/P2P Worker</SelectItem>
-                      <SelectItem value="bunny">Bunny Stream (TUS resumable upload)</SelectItem>
+                      {BUNNY_STREAM_ENABLED && (
+                        <SelectItem value="bunny">Bunny Stream (TUS resumable upload)</SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-slate-500">
-                    Bunny Stream จะอัปโหลดตรงจากเบราว์เซอร์และให้ Bunny เข้ารหัส Adaptive HLS
+                    {BUNNY_STREAM_ENABLED
+                      ? "Bunny Stream จะอัปโหลดตรงจากเบราว์เซอร์และให้ Bunny เข้ารหัส Adaptive HLS"
+                      : "Bunny Stream ถูกพักไว้ชั่วคราว ระบบจะใช้ Cloudflare R2 เท่านั้น"}
                   </p>
                 </div>
 
@@ -1417,16 +1425,20 @@ export default function UploadVideoPage() {
 
                 <div className="space-y-2">
                   <Label htmlFor="description" className="text-sm font-medium text-slate-700">
-                    {isAv ? "เนื้อหาหนัง" : "รายละเอียด"}
+                    คำอธิบาย / Meta description
                   </Label>
                   <Textarea
                     id="description"
-                    placeholder={isAv ? "สรุปเนื้อหาแบบย่อ" : "เพิ่มคำอธิบายสั้น ๆ สำหรับผู้ชม"}
+                    placeholder="สรุปเนื้อหาสำหรับผู้ชมและผลการค้นหา (แนะนำ 120–160 ตัวอักษร)"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
+                    maxLength={160}
                     rows={3}
                     className="bg-slate-50 border-slate-200 focus:bg-white resize-none"
                   />
+                  <p className={`text-xs ${description.length > 150 ? "text-amber-600" : "text-slate-500"}`}>
+                    ข้อความนี้จะใช้เป็น Meta description โดยตรง · {description.length}/160 ตัวอักษร
+                  </p>
                 </div>
 
                 {isAv && (
@@ -2013,7 +2025,12 @@ export default function UploadVideoPage() {
                     <h3 className="font-medium text-slate-900">ตัวอย่างวิดีโอ</h3>
                     <div className="relative aspect-video rounded-xl overflow-hidden bg-slate-900">
                       {videoPreview ? (
-                        <video src={videoPreview} controls className="w-full h-full object-contain" />
+                        <ArtVideoPlayer
+                          url={videoPreview}
+                          title="ตัวอย่างวิดีโอก่อนอัปโหลด"
+                          fillViewport
+                          onError={handlePreviewError}
+                        />
                       ) : (
                         <div className="flex items-center justify-center h-full text-slate-500">ไม่มีตัวอย่าง</div>
                       )}

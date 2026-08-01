@@ -648,10 +648,12 @@ class Sync_Engine {
     }
 
     private function create_video_post(array $data): int|\WP_Error {
+        $meta_description = sanitize_textarea_field(wp_strip_all_tags((string) $data['description']));
         $post_data = [
             'post_type'    => Site_Profile::get_import_post_type(),
             'post_title'   => $data['title'],
             'post_content' => $data['description'],
+            'post_excerpt' => $meta_description,
             'post_status'  => $this->settings['post_status'] ?? 'publish',
             'post_author'  => $this->settings['post_author'] ?? get_current_user_id(),
         ];
@@ -677,15 +679,21 @@ class Sync_Engine {
     private function update_video_post(int $post_id, array $data, ?\WP_Post $existing_post = null): int|\WP_Error {
         $existing_post = $existing_post instanceof \WP_Post ? $existing_post : get_post($post_id);
         $previous_thumb = (string) $this->get_cached_post_meta_value($post_id, '_sevenls_vp_thumbnail_url');
+        $meta_description = sanitize_textarea_field(wp_strip_all_tags((string) $data['description']));
 
         if (
             $existing_post instanceof \WP_Post
-            && ($existing_post->post_title !== (string) $data['title'] || $existing_post->post_content !== (string) $data['description'])
+            && (
+                $existing_post->post_title !== (string) $data['title']
+                || $existing_post->post_content !== (string) $data['description']
+                || $existing_post->post_excerpt !== $meta_description
+            )
         ) {
             $post_data = [
                 'ID'           => $post_id,
                 'post_title'   => $data['title'],
                 'post_content' => $data['description'],
+                'post_excerpt' => $meta_description,
             ];
 
             $result = wp_update_post($post_data, true);
@@ -716,6 +724,9 @@ class Sync_Engine {
         $this->update_post_meta_if_changed($post_id, '_sevenls_vp_duration', absint($data['duration'] ?? 0));
         $this->update_post_meta_if_changed($post_id, '_sevenls_vp_source_created_at', $data['created_at']);
         $this->update_post_meta_if_changed($post_id, '_sevenls_vp_source_updated_at', $data['updated_at']);
+        $meta_description = sanitize_textarea_field(wp_strip_all_tags((string) $data['description']));
+        $this->update_post_meta_if_changed($post_id, 'rank_math_description', $meta_description);
+        $this->update_post_meta_if_changed($post_id, '_yoast_wpseo_metadesc', $meta_description);
 
         if ($this->should_store_raw_payload() && !empty($data['raw_payload'])) {
             $this->update_post_meta_if_changed($post_id, '_sevenls_vp_raw_payload', $data['raw_payload']);

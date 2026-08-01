@@ -2,6 +2,10 @@ import { createHash } from "node:crypto"
 
 const API_BASE = "https://video.bunnycdn.com"
 
+export function isBunnyStreamEnabled() {
+  return process.env.BUNNY_STREAM_ENABLED?.trim().toLowerCase() === "true"
+}
+
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim()
   if (!value) throw new Error(`Missing Bunny Stream configuration: ${name}`)
