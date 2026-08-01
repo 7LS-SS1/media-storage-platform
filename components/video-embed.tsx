@@ -27,7 +27,6 @@ export function VideoEmbed({ videoId, initialVideo, initialError }: VideoEmbedPr
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const playerRef = useRef<any | null>(null)
   const hasTrackedRef = useRef(false)
-  const hasShownBlockedAlertRef = useRef(false)
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
   const handleProtectedPlaybackBlocked = useCallback((message: string) => {
     if (playerRef.current) {
@@ -53,20 +52,6 @@ export function VideoEmbed({ videoId, initialVideo, initialError }: VideoEmbedPr
   useEffect(() => {
     hasTrackedRef.current = false
   }, [videoId])
-
-  useEffect(() => {
-    if (!isBlockedVideoAccessError(error)) {
-      hasShownBlockedAlertRef.current = false
-      return
-    }
-
-    if (hasShownBlockedAlertRef.current) {
-      return
-    }
-
-    hasShownBlockedAlertRef.current = true
-    window.alert(toBlockedVideoAccessMessage(error))
-  }, [error])
 
   const trackView = useCallback(async () => {
     if (hasTrackedRef.current) return

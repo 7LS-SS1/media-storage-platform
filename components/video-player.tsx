@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card"
 import { VideoControls } from "@/components/video-controls"
 import { usePlaybackProtection } from "@/hooks/use-playback-protection"
 import { useVideoControls } from "@/hooks/use-video-controls"
-import { isBlockedVideoAccessError, toBlockedVideoAccessMessage } from "@/lib/video-access-block"
+import { toBlockedVideoAccessMessage } from "@/lib/video-access-block"
 
 interface VideoPlayerProps {
   videoId: string
@@ -31,7 +31,6 @@ export function VideoPlayer({ videoId }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const playerRef = useRef<any | null>(null)
   const hasTrackedRef = useRef(false)
-  const hasShownBlockedAlertRef = useRef(false)
   const handleProtectedPlaybackBlocked = useCallback((message: string) => {
     if (playerRef.current) {
       playerRef.current.destroy()
@@ -54,20 +53,6 @@ export function VideoPlayer({ videoId }: VideoPlayerProps) {
   useEffect(() => {
     hasTrackedRef.current = false
   }, [videoId])
-
-  useEffect(() => {
-    if (!isBlockedVideoAccessError(error)) {
-      hasShownBlockedAlertRef.current = false
-      return
-    }
-
-    if (hasShownBlockedAlertRef.current) {
-      return
-    }
-
-    hasShownBlockedAlertRef.current = true
-    window.alert(toBlockedVideoAccessMessage(error))
-  }, [error])
 
   useEffect(() => {
     let isMounted = true

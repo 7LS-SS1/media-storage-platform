@@ -1,4 +1,4 @@
-export const VIDEO_ACCESS_BLOCK_MESSAGE = "Block การใช้งาน กรุณาติดต่อที่ LINE:UFABET7M"
+export const VIDEO_ACCESS_BLOCK_MESSAGE = "Block การใช้งาน กรุณาติดต่อผู้ดูแลระบบ"
 
 const BLOCKED_VIDEO_ERROR_PATTERNS = [
   "request domain is not registered",
