@@ -4,6 +4,7 @@ const nextConfig = {
     unoptimized: true,
   },
   experimental: {
+    cpus: 1,
     proxyClientMaxBodySize: "500gb",
   },
   serverExternalPackages: ["@prisma/client"],

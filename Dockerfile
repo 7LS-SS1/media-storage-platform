@@ -13,6 +13,8 @@ COPY prisma ./prisma
 RUN npm ci
 
 FROM deps AS builder
+ENV NODE_OPTIONS=--max-old-space-size=1536
+ENV NEXT_PRIVATE_BUILD_WORKER=1
 COPY . .
 RUN npm run build
 
@@ -22,7 +24,7 @@ ENV PORT=3000
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates openssl \
   && rm -rf /var/lib/apt/lists/*
-COPY --from=deps /app/node_modules ./node_modules
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/package.json ./package.json
