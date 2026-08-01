@@ -19,6 +19,8 @@ export const createVideoSchema = z
     videoUrl: z.string().url(),
     thumbnailUrl: z.string().url().optional().nullable(),
     storageBucket: z.enum(["media", "jav"]).optional().default("media"),
+    deliveryProvider: z.enum(["r2", "bunny"]).optional().default("r2"),
+    bunnyVideoId: z.string().uuid().optional().nullable(),
     duration: z.number().int().min(0).optional(),
     fileSize: z.number().int().min(0).optional(),
     mimeType: z.string().min(1).optional(),

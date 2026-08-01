@@ -15,10 +15,18 @@ const getViewBucket = (date = new Date()) => date.toISOString().slice(0, 10)
 export async function POST(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params
   const user = await getUserFromRequest(request)
-  const body = await request.json().catch(() => ({} as { viewerId?: string }))
+  const body = await request.json().catch(() => ({} as Record<string, unknown>))
   const cookieViewerId = request.cookies.get(VIEW_COOKIE)?.value
   const headerViewerId = request.headers.get("x-viewer-id")?.trim()
   const bodyViewerId = typeof body?.viewerId === "string" ? body.viewerId.trim() : ""
+  const toNonNegativeInteger = (value: unknown) => {
+    const number = Number(value)
+    return Number.isFinite(number) ? Math.max(0, Math.round(number)) : 0
+  }
+  const cdnBytes = BigInt(toNonNegativeInteger(body?.cdnBytes))
+  const p2pBytes = BigInt(toNonNegativeInteger(body?.p2pBytes))
+  const watchedSec = toNonNegativeInteger(body?.watchedSec)
+  const domain = typeof body?.domain === "string" ? body.domain.trim().toLowerCase().slice(0, 255) : null
 
   const isAuthenticated = Boolean(user)
   const anonymousId = bodyViewerId || headerViewerId || cookieViewerId || randomUUID()
@@ -57,6 +65,10 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
         videoId: video.id,
         viewerKey,
         viewBucket,
+        domain,
+        cdnBytes,
+        p2pBytes,
+        watchedSec,
       },
     })
 
@@ -67,6 +79,21 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
     counted = true
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      await prisma.videoView.update({
+        where: {
+          videoId_viewerKey_viewBucket: {
+            videoId: video.id,
+            viewerKey,
+            viewBucket,
+          },
+        },
+        data: {
+          domain,
+          cdnBytes,
+          p2pBytes,
+          watchedSec,
+        },
+      })
       counted = false
     } else {
       throw error

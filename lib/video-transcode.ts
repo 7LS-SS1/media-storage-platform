@@ -12,9 +12,8 @@ const getTempDir = () => process.env.TRANSCODE_TMP_DIR || os.tmpdir()
 
 export const shouldTranscodeToMp4 = (videoUrl: string, mimeType?: string | null) => {
   if (!videoUrl) return false
-  if (mimeType?.toLowerCase() === "video/mp2t") return true
   const cleanUrl = videoUrl.split("?")[0]?.toLowerCase() ?? ""
-  return cleanUrl.endsWith(".ts")
+  return mimeType?.toLowerCase() !== "application/vnd.apple.mpegurl" && !cleanUrl.endsWith(".m3u8")
 }
 
 const parseFfmpegTimestamp = (value: string) => {
@@ -29,19 +28,31 @@ const parseFfmpegTimestamp = (value: string) => {
   return hours * 3600 + minutes * 60 + seconds
 }
 
-const runFfmpeg = (inputSource: string, outputPath: string, onProgress?: (progress: number) => void) =>
+const runFfmpeg = (inputSource: string, outputDir: string, onProgress?: (progress: number) => void) =>
   new Promise<void>((resolve, reject) => {
+    const playlistPath = path.join(outputDir, "master.m3u8")
+    const segmentPath = path.join(outputDir, "segment_%05d.ts")
     const args = [
       "-y",
       "-i",
       inputSource,
       "-c:v",
       "libx264",
+      "-preset",
+      "fast",
+      "-crf",
+      "23",
       "-c:a",
       "aac",
-      "-movflags",
-      "+faststart",
-      outputPath,
+      "-hls_time",
+      "6",
+      "-hls_list_size",
+      "0",
+      "-hls_segment_filename",
+      segmentPath,
+      "-f",
+      "hls",
+      playlistPath,
     ]
     const process = spawn(FFMPEG_PATH, args, { stdio: ["ignore", "ignore", "pipe"] })
     let stderr = ""
@@ -105,7 +116,7 @@ const cleanupFiles = async (...paths: string[]) => {
   await Promise.all(
     paths.map(async (filePath) => {
       try {
-        await fs.unlink(filePath)
+        await fs.rm(filePath, { recursive: true, force: true })
       } catch {
         // Ignore cleanup errors.
       }
@@ -126,7 +137,7 @@ export const transcodeVideoToMp4 = async (
   const signedUrl = await getSignedR2Url(sourceKey, 3600, storageBucket)
   const tempBase = `transcode-${videoId}-${Date.now()}`
   const tmpDir = getTempDir()
-  const outputPath = path.join(tmpDir, `${tempBase}.mp4`)
+  const outputDir = path.join(tmpDir, tempBase)
 
   let lastPersistedProgress = -1
   const persistProgress = (progress: number) => {
@@ -144,7 +155,7 @@ export const transcodeVideoToMp4 = async (
   }
 
   try {
-    await fs.mkdir(tmpDir, { recursive: true })
+    await fs.mkdir(outputDir, { recursive: true })
     await prisma.video.update({
       where: { id: videoId },
       data: {
@@ -153,33 +164,38 @@ export const transcodeVideoToMp4 = async (
       },
     })
 
-    await runFfmpeg(signedUrl, outputPath, persistProgress)
+    await runFfmpeg(signedUrl, outputDir, persistProgress)
 
-    let targetKey = sourceKey.replace(/\.ts$/i, ".mp4")
-    if (targetKey === sourceKey) {
-      targetKey = generateUploadKey(`${videoId}.mp4`, "video", storageBucket)
+    const generatedKey = generateUploadKey(`${videoId}.m3u8`, "video", storageBucket)
+    const targetPrefix = generatedKey.replace(/\/[^/]+$/, `/hls-${videoId}`)
+    const files = await fs.readdir(outputDir)
+    for (const filename of files) {
+      const contentType = filename.endsWith(".m3u8")
+        ? "application/vnd.apple.mpegurl"
+        : filename.endsWith(".ts")
+          ? "video/mp2t"
+          : "application/octet-stream"
+      await uploadFileToR2(path.join(outputDir, filename), `${targetPrefix}/${filename}`, contentType, storageBucket)
     }
-
-    await uploadFileToR2(outputPath, targetKey, "video/mp4", storageBucket)
-    const mp4Url = getPublicR2Url(targetKey, storageBucket)
+    const hlsUrl = getPublicR2Url(`${targetPrefix}/master.m3u8`, storageBucket)
 
     await prisma.video.update({
       where: { id: videoId },
       data: {
-        videoUrl: mp4Url,
-        mimeType: "video/mp4",
+        videoUrl: hlsUrl,
+        mimeType: "application/vnd.apple.mpegurl",
         status: "READY",
         transcodeProgress: 100,
       },
     })
 
     try {
-      await generateThumbnailFromLocalFile(videoId, outputPath, { storageBucket })
+      await generateThumbnailFromLocalFile(videoId, signedUrl, { storageBucket })
     } catch (error) {
       console.error("Failed to generate thumbnail after transcode:", error)
     }
   } finally {
-    await cleanupFiles(outputPath)
+    await cleanupFiles(outputDir)
   }
 }
 

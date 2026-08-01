@@ -4,6 +4,7 @@ import { canDomainAccessVideo, getVerifiedRequestDomain } from "@/lib/domain-sec
 import { prisma } from "@/lib/prisma"
 import { canManageVideos, canViewAllVideos } from "@/lib/roles"
 import { deleteFromR2, extractR2Key, getSignedPlaybackUrl, normalizeR2Url, toPublicPlaybackUrl } from "@/lib/r2"
+import { deleteBunnyVideo, isBunnyStreamUrl } from "@/lib/bunny-stream"
 import { normalizeActors, toActorNames } from "@/lib/actors"
 import { mergeTags, normalizeTags } from "@/lib/tags"
 import { VIDEO_ACCESS_BLOCK_MESSAGE } from "@/lib/video-access-block"
@@ -139,7 +140,10 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
       return NextResponse.json({ error: VIDEO_ACCESS_BLOCK_MESSAGE }, { status: 403 })
     }
 
-    const resolvedVideoUrl = await getSignedPlaybackUrl(video.videoUrl, 3600, bucket)
+    const isHls = video.videoUrl.split("?")[0]?.toLowerCase().endsWith(".m3u8")
+    const resolvedVideoUrl = isHls
+      ? normalizeR2Url(video.videoUrl, bucket)
+      : await getSignedPlaybackUrl(video.videoUrl, 3600, bucket)
     const actorNames = video.actors.map((actor) => actor.name)
     const normalizedVideo = {
       ...video,
@@ -395,15 +399,17 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    // Delete video file from R2
+    // Delete the source from its configured delivery provider.
     try {
-      const videoKey = extractR2Key(video.videoUrl, bucket)
-      if (videoKey) {
-        await deleteFromR2(videoKey, bucket)
+      if (video.deliveryProvider === "bunny" && video.bunnyVideoId) {
+        await deleteBunnyVideo(video.bunnyVideoId)
+      } else {
+        const videoKey = extractR2Key(video.videoUrl, bucket)
+        if (videoKey) await deleteFromR2(videoKey, bucket)
       }
 
-      // Delete thumbnail if exists
-      if (video.thumbnailUrl) {
+      // A custom thumbnail can still live in R2 for a Bunny-hosted video.
+      if (video.thumbnailUrl && !isBunnyStreamUrl(video.thumbnailUrl)) {
         const thumbnailKey = extractR2Key(video.thumbnailUrl, bucket)
         if (thumbnailKey) {
           await deleteFromR2(thumbnailKey, bucket)

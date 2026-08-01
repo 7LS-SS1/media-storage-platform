@@ -94,6 +94,14 @@ export async function POST(request: NextRequest) {
       validatedData.categoryIds ?? (validatedData.categoryId ? [validatedData.categoryId] : []),
     )
     const allowedDomainIds = normalizeIdList(validatedData.allowedDomainIds)
+    const domainIdsToAssign = allowedDomainIds.length > 0
+      ? allowedDomainIds
+      : (
+          await prisma.allowedDomain.findMany({
+            where: { isActive: true },
+            select: { id: true },
+          })
+        ).map((domain) => domain.id)
 
     if (validatedData.studio) {
       const studioName = validatedData.studio.trim()
@@ -137,7 +145,9 @@ export async function POST(request: NextRequest) {
     }
     const cleanVideoUrl = validatedData.videoUrl.split("?")[0]?.toLowerCase() ?? ""
     const isMp4 = validatedData.mimeType?.toLowerCase() === "video/mp4" || cleanVideoUrl.endsWith(".mp4")
-    const shouldTranscode = shouldTranscodeToMp4(validatedData.videoUrl, validatedData.mimeType)
+    const shouldTranscode = validatedData.deliveryProvider === "bunny"
+      ? true
+      : shouldTranscodeToMp4(validatedData.videoUrl, validatedData.mimeType)
 
     const video = await prisma.video.create({
       data: {
@@ -151,6 +161,8 @@ export async function POST(request: NextRequest) {
         videoUrl: validatedData.videoUrl,
         thumbnailUrl: validatedData.thumbnailUrl ?? undefined,
         storageBucket,
+        deliveryProvider: validatedData.deliveryProvider,
+        bunnyVideoId: validatedData.bunnyVideoId ?? undefined,
         duration: validatedData.duration,
         fileSize: validatedData.fileSize === undefined ? undefined : BigInt(validatedData.fileSize),
         mimeType: validatedData.mimeType,
@@ -191,22 +203,19 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // Add allowed domains if visibility is DOMAIN_RESTRICTED
-    if (validatedData.visibility === "DOMAIN_RESTRICTED" && allowedDomainIds.length > 0) {
-      await Promise.all(
-        allowedDomainIds.map((domainId) =>
-          prisma.videoAllowedDomain.create({
-            data: {
-              videoId: video.id,
-              domainId: domainId,
-            },
-          }),
-        ),
-      )
+    // Match the reference system: every new video is associated with all
+    // active domains unless the upload explicitly selected a subset.
+    if (domainIdsToAssign.length > 0) {
+      await prisma.videoAllowedDomain.createMany({
+        data: domainIdsToAssign.map((domainId) => ({ videoId: video.id, domainId })),
+        skipDuplicates: true,
+      })
     }
 
-    enqueueVideoTranscode(video.id, video.videoUrl, video.mimeType, storageBucket)
-    if (!shouldTranscode && !validatedData.thumbnailUrl) {
+    if (validatedData.deliveryProvider !== "bunny") {
+      enqueueVideoTranscode(video.id, video.videoUrl, video.mimeType, storageBucket)
+    }
+    if (validatedData.deliveryProvider !== "bunny" && !shouldTranscode && !validatedData.thumbnailUrl) {
       enqueueVideoThumbnail(video.id, video.videoUrl, video.thumbnailUrl, storageBucket)
     }
 
@@ -319,7 +328,14 @@ export async function GET(request: NextRequest) {
       }
       filters.push(buildVideoAccessWhereForDomain(verifiedRequestDomain))
       filters.push({ status: "READY" })
-      filters.push({ OR: [{ mimeType: "video/mp4" }, { videoUrl: { endsWith: ".mp4" } }] })
+      filters.push({
+        OR: [
+          { mimeType: "video/mp4" },
+          { mimeType: "application/vnd.apple.mpegurl" },
+          { videoUrl: { endsWith: ".mp4" } },
+          { videoUrl: { endsWith: ".m3u8" } },
+        ],
+      })
     } else if (!canViewAllVideos(user.role)) {
       // Non-admin users can see their own videos (any status) and public READY videos.
       filters.push({
@@ -377,8 +393,11 @@ export async function GET(request: NextRequest) {
     const normalizedVideos = await Promise.all(
       videos.map(async (video) => {
         const bucket = parseStorageBucket(video.storageBucket)
+        const isHls = video.videoUrl.split("?")[0]?.toLowerCase().endsWith(".m3u8")
         const resolvedVideoUrl = isPluginRequest
-          ? await getSignedPlaybackUrl(video.videoUrl, 3600, bucket)
+          ? isHls
+            ? normalizeR2Url(video.videoUrl, bucket)
+            : await getSignedPlaybackUrl(video.videoUrl, 3600, bucket)
           : null
         return {
           ...video,

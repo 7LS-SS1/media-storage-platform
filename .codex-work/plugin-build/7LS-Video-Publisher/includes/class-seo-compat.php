@@ -16,6 +16,30 @@ class SEO_Compat {
         add_filter('rank_math/metabox/post_types', [__CLASS__, 'add_video_post_type']);
         add_filter('rank_math/sitemap/post_types', [__CLASS__, 'add_video_post_type']);
         add_filter('rank_math/excluded_post_types', [__CLASS__, 'remove_video_from_excluded']);
+
+        self::configure_rank_math_video_description();
+    }
+
+    /**
+     * Keep the Rank Math description template for videos in sync with the
+     * WordPress excerpt. Rank Math auto-generates an excerpt when a post does
+     * not have one explicitly set.
+     */
+    private static function configure_rank_math_video_description(): void {
+        $option_name = 'rank-math-options-titles';
+        $titles      = get_option($option_name, null);
+
+        // Do not create Rank Math options when Rank Math is not installed yet.
+        if (!is_array($titles)) {
+            return;
+        }
+
+        if (($titles['pt_video_description'] ?? '') === '%excerpt%') {
+            return;
+        }
+
+        $titles['pt_video_description'] = '%excerpt%';
+        update_option($option_name, $titles);
     }
 
     /**

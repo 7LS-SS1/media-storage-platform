@@ -60,7 +60,12 @@ export async function resolveEmbedVideo(videoId: string, requestingDomain: strin
     }
   }
 
-  const resolvedVideoUrl = await getSignedPlaybackUrl(video.videoUrl, 3600, bucket)
+  // Relative HLS segments cannot reuse a signature attached only to the
+  // playlist object, so HLS playback uses the configured R2 custom domain.
+  const isHls = video.videoUrl.split("?")[0]?.toLowerCase().endsWith(".m3u8")
+  const resolvedVideoUrl = isHls
+    ? normalizeR2Url(video.videoUrl, bucket)
+    : await getSignedPlaybackUrl(video.videoUrl, 3600, bucket)
 
   return {
     status: 200,

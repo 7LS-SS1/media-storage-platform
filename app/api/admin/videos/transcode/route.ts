@@ -63,7 +63,10 @@ export async function POST(request: NextRequest) {
     const sinceDate = parseSinceDate(validated.since)
 
     const where: Record<string, unknown> = {
-      OR: [{ mimeType: "video/mp2t" }, { videoUrl: { endsWith: ".ts" } }],
+      NOT: [
+        { mimeType: "application/vnd.apple.mpegurl" },
+        { videoUrl: { endsWith: ".m3u8" } },
+      ],
     }
 
     if (validated.ids?.length) {

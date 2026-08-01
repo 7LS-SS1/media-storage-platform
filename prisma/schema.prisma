@@ -87,6 +87,8 @@ model Video {
   fileSize     BigInt?         @map("file_size") // in bytes
   mimeType     String?         @map("mime_type")
   storageBucket String         @default("media") @map("storage_bucket")
+  deliveryProvider String      @default("r2") @map("delivery_provider")
+  bunnyVideoId String?         @unique @map("bunny_video_id")
   visibility   VideoVisibility @default(PUBLIC)
   status       VideoStatus     @default(PROCESSING)
   transcodeProgress Int?       @map("transcode_progress")
@@ -118,6 +120,10 @@ model VideoView {
   videoId    String   @map("video_id")
   viewerKey  String   @map("viewer_key")
   viewBucket String   @map("view_bucket")
+  domain     String?
+  cdnBytes   BigInt   @default(0) @map("cdn_bytes")
+  p2pBytes   BigInt   @default(0) @map("p2p_bytes")
+  watchedSec Int      @default(0) @map("watched_sec")
   createdAt  DateTime @default(now()) @map("created_at")
 
   video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)

@@ -59,9 +59,9 @@ npm run db:migrate
 npm run dev
 ```
 
-## Transcode Worker (Recommended for Large Files)
+## HLS Transcode Worker (Recommended for Large Files)
 
-Serverless environments have limited `/tmp` space. For large videos, run transcoding on a VM/container with enough disk.
+Serverless environments have limited `/tmp` space. For large videos, run transcoding on a VM/container with enough disk. The worker creates a six-second HLS playlist and segments used by the P2P-enabled embed player.
 
 1. Set `TRANSCODE_MODE=worker` in the app environment (Vercel/local).
 2. On a machine with ffmpeg/ffprobe installed and enough disk, run:
@@ -138,6 +138,15 @@ Embed videos using iframe:
 2. Create a bucket
 3. Generate API credentials
 4. Add credentials to \`.env\`
+
+## Bunny Stream Setup
+
+1. Create a Bunny Stream video library and copy its Library ID, API key, read-only API key, and CDN hostname.
+2. Configure \`BUNNY_STREAM_LIBRARY_ID\`, \`BUNNY_STREAM_API_KEY\`, \`BUNNY_STREAM_READ_ONLY_API_KEY\`, and \`BUNNY_STREAM_CDN_HOSTNAME\`.
+3. Set the Bunny Stream webhook URL to \`https://your-domain.com/api/bunny-stream/webhook\`.
+4. Allow your playback domains and CORS access in the Bunny Stream library settings.
+
+The upload wizard can then select **Bunny Stream**. Uploads use resumable TUS directly from the browser; Bunny encodes adaptive HLS and the signed webhook updates the local video status.
 
 ## License
 

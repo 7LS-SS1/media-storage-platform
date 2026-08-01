@@ -39,6 +39,21 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="th" suppressHydrationWarning>
+      <head>
+        <script
+          type="importmap"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              imports: {
+                "p2p-media-loader-core":
+                  "https://cdn.jsdelivr.net/npm/p2p-media-loader-core@1.0.5/dist/p2p-media-loader-core.es.min.js",
+                "p2p-media-loader-hlsjs":
+                  "https://cdn.jsdelivr.net/npm/p2p-media-loader-hlsjs@1.0.5/dist/p2p-media-loader-hlsjs.es.min.js",
+              },
+            }),
+          }}
+        />
+      </head>
       <body className={`font-sans antialiased`} suppressHydrationWarning>
         <Navigation />
         {children}

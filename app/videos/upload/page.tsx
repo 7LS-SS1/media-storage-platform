@@ -30,6 +30,7 @@ import {
   TrendingUp,
 } from "lucide-react"
 import { toast } from "sonner"
+import * as tus from "tus-js-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -86,6 +87,7 @@ interface SeoCheck {
 
 type Visibility = "PUBLIC" | "PRIVATE" | "DOMAIN_RESTRICTED"
 type StorageBucket = "media" | "jav"
+type DeliveryProvider = "r2" | "bunny"
 type SeoStatus = "idle" | "running" | "done"
 
 // ─── Steps ───────────────────────────────────────────────────────────────────
@@ -112,6 +114,7 @@ export default function UploadVideoPage() {
   const [categoryIds, setCategoryIds] = useState<string[]>([])
   const [visibility, setVisibility] = useState<Visibility>("PUBLIC")
   const [storageBucket, setStorageBucket] = useState<StorageBucket>("media")
+  const [deliveryProvider, setDeliveryProvider] = useState<DeliveryProvider>("r2")
   const [allowedDomainIds, setAllowedDomainIds] = useState<string[]>([])
   const [videoFile, setVideoFile] = useState<File | null>(null)
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null)
@@ -157,6 +160,7 @@ export default function UploadVideoPage() {
     movieCode,
     studio,
     storageBucket,
+    deliveryProvider,
     actors.join(","),
     categoryIds.join(","),
     String(!!thumbnailFile),
@@ -893,6 +897,50 @@ export default function UploadVideoPage() {
     }
   }
 
+  const uploadToBunnyStream = async (file: File, onProgress: (progress: number) => void) => {
+    const response = await fetch("/api/bunny-stream/upload", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: title.trim() || file.name }),
+    })
+    const credentials = await response.json()
+    if (!response.ok) throw new Error(credentials.error || "เริ่มอัปโหลด Bunny Stream ไม่สำเร็จ")
+
+    await new Promise<void>((resolve, reject) => {
+      const upload = new tus.Upload(file, {
+        endpoint: credentials.endpoint,
+        retryDelays: [0, 3000, 5000, 10000, 20000, 60000],
+        headers: {
+          AuthorizationSignature: credentials.signature,
+          AuthorizationExpire: String(credentials.expirationTime),
+          VideoId: credentials.videoId,
+          LibraryId: String(credentials.libraryId),
+        },
+        metadata: {
+          filetype: file.type || "application/octet-stream",
+          title: title.trim() || file.name,
+        },
+        removeFingerprintOnSuccess: true,
+        onError: reject,
+        onProgress: (uploaded, total) => onProgress(total > 0 ? Math.round((uploaded / total) * 100) : 0),
+        onSuccess: () => resolve(),
+      })
+      upload.findPreviousUploads().then((previous) => {
+        if (previous.length > 0) upload.resumeFromPreviousUpload(previous[0])
+        upload.start()
+      }).catch(reject)
+    })
+
+    return {
+      url: credentials.playlistUrl as string,
+      thumbnailUrl: credentials.thumbnailUrl as string,
+      bunnyVideoId: credentials.videoId as string,
+      size: file.size,
+      type: "application/vnd.apple.mpegurl",
+    }
+  }
+
   // ── Validation ────────────────────────────────────────────────────────────────
   const validateStep = (step: number): boolean => {
     const nextErrors: Record<string, string> = {}
@@ -940,7 +988,15 @@ export default function UploadVideoPage() {
     setUploadProgress(0)
 
     try {
-      const videoUpload = await uploadFile(videoFile!, "video", setUploadProgress, storageBucket)
+      let bunnyVideoId: string | undefined
+      let bunnyThumbnailUrl: string | undefined
+      const videoUpload = deliveryProvider === "bunny"
+        ? await uploadToBunnyStream(videoFile!, setUploadProgress).then((result) => {
+            bunnyVideoId = result.bunnyVideoId
+            bunnyThumbnailUrl = result.thumbnailUrl
+            return { url: result.url, size: result.size, type: result.type }
+          })
+        : await uploadFile(videoFile!, "video", setUploadProgress, storageBucket)
       let thumbnailUrl: string | undefined
 
       if (thumbnailFile) {
@@ -948,6 +1004,8 @@ export default function UploadVideoPage() {
         setUploadProgress(0)
         const thumbnailUpload = await uploadFile(thumbnailFile, "thumbnail", setUploadProgress, storageBucket)
         thumbnailUrl = thumbnailUpload.url
+      } else if (deliveryProvider === "bunny") {
+        thumbnailUrl = bunnyThumbnailUrl
       }
 
       setUploadStatus("กำลังบันทึกข้อมูล...")
@@ -970,6 +1028,8 @@ export default function UploadVideoPage() {
           fileSize: videoUpload.size,
           mimeType: videoUpload.type,
           storageBucket,
+          deliveryProvider,
+          bunnyVideoId,
           ...(isAv
             ? {
                 movieCode: movieCode.trim() || null,
@@ -1137,6 +1197,22 @@ export default function UploadVideoPage() {
                       <p className="text-xs text-slate-500 mt-1">หนังเต็มเรื่อง มีรหัส</p>
                     </button>
                   </div>
+                </div>
+
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium text-slate-700">ระบบสตรีม</Label>
+                  <Select value={deliveryProvider} onValueChange={(value) => setDeliveryProvider(value as DeliveryProvider)}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="r2">Cloudflare R2 + HLS/P2P Worker</SelectItem>
+                      <SelectItem value="bunny">Bunny Stream (TUS resumable upload)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500">
+                    Bunny Stream จะอัปโหลดตรงจากเบราว์เซอร์และให้ Bunny เข้ารหัส Adaptive HLS
+                  </p>
                 </div>
 
                 {/* Video Upload */}

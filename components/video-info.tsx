@@ -61,12 +61,12 @@ export function VideoInfo({ videoId }: VideoInfoProps) {
 
   const normalizedUrl = video?.videoUrl?.split("?")[0]?.toLowerCase() ?? ""
   const mimeType = video?.mimeType?.toLowerCase() ?? ""
-  const isMp4 = mimeType === "video/mp4" || normalizedUrl.endsWith(".mp4")
+  const isHls = mimeType === "application/vnd.apple.mpegurl" || normalizedUrl.endsWith(".m3u8")
   const isTs = mimeType === "video/mp2t" || normalizedUrl.endsWith(".ts")
   const shouldPoll = Boolean(video) && (video?.status === "PROCESSING" || (isTs && video?.status !== "FAILED"))
-  const canRetryTranscode = Boolean(video) && !isMp4 && (video?.status === "PROCESSING" || video?.status === "FAILED")
+  const canRetryTranscode = Boolean(video) && !isHls && (video?.status === "PROCESSING" || video?.status === "FAILED")
   const showProcessing = video?.status === "PROCESSING"
-  const showMp4ReadyText = isMp4 && video?.status === "READY"
+  const showMp4ReadyText = isHls && video?.status === "READY"
   const showFailed = video?.status === "FAILED"
   const showPending = !showProcessing && !showMp4ReadyText && !showFailed
 
@@ -199,13 +199,13 @@ export function VideoInfo({ videoId }: VideoInfoProps) {
     return <Card>Video not found</Card>
   }
 
-  let mp4Status = "MP4: Not converted"
+  let mp4Status = "HLS: Not converted"
   if (video.status === "FAILED") {
-    mp4Status = "MP4: Failed"
-  } else if (isMp4) {
-    mp4Status = "MP4: Ready"
+    mp4Status = "HLS: Failed"
+  } else if (isHls) {
+    mp4Status = "HLS: Ready"
   } else if (isTs || video.status === "PROCESSING") {
-    mp4Status = "MP4: Processing"
+    mp4Status = "HLS: Processing"
   }
   const progressValue = typeof video.transcodeProgress === "number" ? video.transcodeProgress : null
   const thumbnailFilename = `${video.title || video.id}-thumbnail`.replace(/[\\/:*?"<>|]+/g, "-")
@@ -336,7 +336,7 @@ export function VideoInfo({ videoId }: VideoInfoProps) {
             )}
 
             {showMp4ReadyText && (
-              <p className="text-sm text-muted-foreground">วิดีเป็น mp4 แล้ว</p>
+              <p className="text-sm text-muted-foreground">วิดีโอเป็น HLS พร้อม P2P แล้ว</p>
             )}
 
             {showFailed && (
